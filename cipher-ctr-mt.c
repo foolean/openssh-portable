@@ -128,25 +128,37 @@ enum {
 
 /* Keystream Queue struct */
 struct kq {
-	u_char		keys[KQLEN][AES_BLOCK_SIZE];
-	u_char		ctr[AES_BLOCK_SIZE];
-	u_char		pad0[CACHELINE_LEN];
-	int		qstate;
+	u_char		keys[KQLEN][AES_BLOCK_SIZE]; /* 4096 x 16B */
+	u_char		ctr[AES_BLOCK_SIZE]; /* 16B */
+	u_char		pad0[CACHELINE_LEN]; /* 64B */
+	int             qstate;
 	pthread_mutex_t	lock;
 	pthread_cond_t	cond;
-	u_char		pad1[CACHELINE_LEN];
+	u_char		pad1[CACHELINE_LEN]; /* 64B */
 };
+
+/* AES KEY Struct
+struct aes_key_st {
+# ifdef AES_LONG
+    unsigned long rd_key[4 * (AES_MAXNR + 1)];
+# else
+    unsigned int rd_key[4 * (AES_MAXNR + 1)];
+# endif
+    int rounds;
+};
+*/
 
 /* Context struct */
 struct ssh_aes_ctr_ctx_mt
 {
 	int             struct_id;
-	struct kq	q[MAX_NUMKQ];
-	AES_KEY		aes_ctx;
+	struct kq	q[MAX_NUMKQ]; /* 64 */
+	AES_KEY         aes_key;
 	STATS_STRUCT(stats);
-	u_char		aes_counter[AES_BLOCK_SIZE];
-	pthread_t	tid[MAX_THREADS];
-	int             id[MAX_THREADS];
+	const u_char    *orig_key;
+	u_char		aes_counter[AES_BLOCK_SIZE]; /* 16B */
+	pthread_t	tid[MAX_THREADS]; /* 32 */
+	int             id[MAX_THREADS]; /* 32 */
 	pthread_rwlock_t tid_lock;
 #ifdef __APPLE__
 	pthread_rwlock_t stop_lock;
@@ -261,17 +273,29 @@ stop_and_join_pregen_threads(struct ssh_aes_ctr_ctx_mt *c)
  *    Find empty keystream queues and fill them using their counter.
  *    When done, update counter for the next fill.
  */
+/* currently this is using the low level interface which is, sadly, 
+ * slower than the EVP interface by a long shot. The original (from the 
+ * body of the code) isn't passed in here but we have the key and the counter
+ * which means we should be able to create the exact same ctx and use that to
+ * fill the keystream queues. I'm concerned about additional overhead but the 
+ * additional speed from AESNI shoudl make up for it.  */ 
+
 static void *
 thread_loop(void *x)
 {
-	AES_KEY key;
+	//AES_KEY key;
+	EVP_CIPHER_CTX *aesni_ctx;
 	STATS_STRUCT(stats);
 	struct ssh_aes_ctr_ctx_mt *c = x;
 	struct kq *q;
 	int i;
 	int qidx;
 	pthread_t first_tid;
-
+	int outlen;
+	u_char out[AES_BLOCK_SIZE];
+	u_char mynull[AES_BLOCK_SIZE];
+	memset(&mynull, 0, AES_BLOCK_SIZE);
+	
 	/* Threads stats on cancellation */
 	STATS_INIT(stats);
 #ifdef CIPHER_THREAD_STATS
@@ -279,22 +303,28 @@ thread_loop(void *x)
 #endif
 
 	/* Thread local copy of AES key */
-	memcpy(&key, &c->aes_ctx, sizeof(key));
+	//memcpy(&key, &c->aes_key, sizeof(key));
 
 	pthread_rwlock_rdlock(&c->tid_lock);
 	first_tid = c->tid[0];
 	pthread_rwlock_unlock(&c->tid_lock);
 
+	aesni_ctx = EVP_CIPHER_CTX_new();
+	
 	/*
 	 * Handle the special case of startup, one thread must fill
 	 * the first KQ then mark it as draining. Lock held throughout.
 	 */
+
 	if (pthread_equal(pthread_self(), first_tid)) {
 		q = &c->q[0];
 		pthread_mutex_lock(&q->lock);
 		if (q->qstate == KQINIT) {
+			fprintf(stderr, "Filling first key queue\n");
 			for (i = 0; i < KQLEN; i++) {
-				AES_encrypt(q->ctr, q->keys[i], &key);
+				EVP_EncryptInit_ex(aesni_ctx, EVP_aes_256_ctr(), NULL, c->orig_key, q->ctr);
+				EVP_EncryptUpdate(aesni_ctx, q->keys[i], &outlen, mynull, AES_BLOCK_SIZE);
+				/* increment the counter */
 				ssh_ctr_inc(q->ctr, AES_BLOCK_SIZE);
 			}
 			ssh_ctr_add(q->ctr, KQLEN * (numkq - 1), AES_BLOCK_SIZE);
@@ -348,8 +378,10 @@ thread_loop(void *x)
 		q->qstate = KQFILLING;
 		pthread_cond_broadcast(&q->cond);
 		pthread_mutex_unlock(&q->lock);
+		fprintf(stderr, "Filling other queues\n");
 		for (i = 0; i < KQLEN; i++) {
-			AES_encrypt(q->ctr, q->keys[i], &key);
+			EVP_EncryptInit_ex(aesni_ctx, EVP_aes_256_ctr(), NULL, c->orig_key, q->ctr);
+			EVP_EncryptUpdate(aesni_ctx, q->keys[i], &outlen, mynull, AES_BLOCK_SIZE);
 			ssh_ctr_inc(q->ctr, AES_BLOCK_SIZE);
 		}
 
@@ -470,6 +502,7 @@ ssh_aes_ctr(EVP_CIPHER_CTX *ctx, u_char *dest, const u_char *src,
 #define HAVE_IV         2
 int X = 0;
 
+/* initialize aes contexts and threads */
 static int
 ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
     int enc)
@@ -511,6 +544,7 @@ ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 	/* set the number of keystream queues */
 	numkq = cipher_threads * 2;
 
+	/* set up the initial state of c (our cipher stream struct) */
 	if ((c = EVP_CIPHER_CTX_get_app_data(ctx)) == NULL) {
 		c = xmalloc(sizeof(*c));
 		pthread_rwlock_init(&c->tid_lock, NULL);
@@ -520,15 +554,23 @@ ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 #endif /* __APPLE__ */
 
 		c->state = HAVE_NONE;
+
+		/* initialize the mutexs and conditions for each lock in our struct */
 		for (i = 0; i < numkq; i++) {
 			pthread_mutex_init(&c->q[i].lock, NULL);
 			pthread_cond_init(&c->q[i].cond, NULL);
 		}
 
+		/* initialize the stats struct */
 		STATS_INIT(c->stats);
+
+		/* attach our struct to the context */
 		EVP_CIPHER_CTX_set_app_data(ctx, c);
 	}
 
+	/* we are initializing but the current structure already
+	   has an IV and key so we want to kill the existing key data 
+	   and start over. This is important when we need to rekey the data stream */
 	if (c->state == (HAVE_KEY | HAVE_IV)) {
 		/* tell the pregen threads to exit */
 		stop_and_join_pregen_threads(c);
@@ -542,21 +584,30 @@ ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 		c->state = HAVE_NONE;
 	}
 
+	/* set the initial key for this key stream queue */
 	if (key != NULL) {
 		AES_set_encrypt_key(key, EVP_CIPHER_CTX_key_length(ctx) * 8,
-		    &c->aes_ctx);
+		   &c->aes_key);
+		//fprintf(stderr, "\nkey : %s\n", key);
+		c->orig_key = key; 
 		c->state |= HAVE_KEY;
 	}
 
+	/* set the IV */
 	if (iv != NULL) {
+		/* init the counter this is just a 16byte uchar */
 		memcpy(c->aes_counter, iv, AES_BLOCK_SIZE);
 		c->state |= HAVE_IV;
 	}
 
 	if (c->state == (HAVE_KEY | HAVE_IV)) {
 		/* Clear queues */
+		/* set the first key in the key queue to the current counter */
 		memcpy(c->q[0].ctr, c->aes_counter, AES_BLOCK_SIZE);
+		/* indicate that it needs to be initialized */
 		c->q[0].qstate = KQINIT;
+		/* for each of the remaining queues set the first counter to the 
+		 * counter and then add the size of the queue to the counter */
 		for (i = 1; i < numkq; i++) {
 			memcpy(c->q[i].ctr, c->aes_counter, AES_BLOCK_SIZE);
 			ssh_ctr_add(c->q[i].ctr, i * KQLEN, AES_BLOCK_SIZE);
