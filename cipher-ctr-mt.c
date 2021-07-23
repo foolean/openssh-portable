@@ -4,7 +4,7 @@
  * Author: Benjamin Bennett <ben@psc.edu>
  * Author: Mike Tasota <tasota@gmail.com>
  * Author: Chris Rapier <rapier@psc.edu>
- * Copyright (c) 2008-2013 Pittsburgh Supercomputing Center. All rights reserved.
+ * Copyright (c) 2008-2021 Pittsburgh Supercomputing Center. All rights reserved.
  *
  * Based on original OpenSSH AES-CTR cipher. Small portions remain unchanged,
  * Copyright (c) 2003 Markus Friedl <markus@openbsd.org>
@@ -50,12 +50,23 @@
 #define MAX_NUMKQ        (MAX_THREADS * 2)
 
 /* Number of pregen threads to use */
+/* this is a default value. The actual number is
+ * determined during init as a function of the number
+ * of available cores */
 int cipher_threads = 2;
 
 /* Number of keystream queues */
+/* ideally this should be large enough so that there is
+ * always a key queue for a thread to work on
+ * so maybe double of the number of threads. Again this
+ * is a default and the actual value is determined in init*/
 int numkq = 4;
 
 /* Length of a keystream queue */
+/* one queue holds 64KB of key data
+ * being that the queues are destroyed after a rekey
+ * and at leats one has to be fully filled prior to
+ * enciphering data we don't want this to be too large */
 #define KQLEN		4096
 
 /* Processor cacheline length */
@@ -75,6 +86,11 @@ int numkq = 4;
 # define CIPHER_INT128_OK
 #endif
 /*-------------------- END TUNABLES --------------------*/
+
+#define HAVE_NONE       0
+#define HAVE_KEY        1
+#define HAVE_IV         2
+int X = 0;
 
 
 const EVP_CIPHER *evp_aes_ctr_mt(void);
@@ -253,12 +269,6 @@ stop_and_join_pregen_threads(struct ssh_aes_ctr_ctx_mt *c)
 		debug ("Canceled %lu (%d,%d)", c->tid[i], c->struct_id, c->id[i]);
 		pthread_cancel(c->tid[i]);
 	}
-	/* shouldn't need this - see commit logs for hpn-7_7_P1 -cjr 11/7/19*/
-	/* for (i = 0; i < numkq; i++) { */
-	/* 	pthread_mutex_lock(&c->q[i].lock); */
-	/* 	pthread_cond_broadcast(&c->q[i].cond); */
-	/* 	pthread_mutex_unlock(&c->q[i].lock); */
-	/* } */
 	for (i = 0; i < cipher_threads; i++) {
 		if (pthread_kill(c->tid[i], 0) != 0)
 			debug3("AES-CTR MT pthread_join failure: Invalid thread id %lu in %s", c->tid[i], __FUNCTION__);
@@ -274,12 +284,12 @@ stop_and_join_pregen_threads(struct ssh_aes_ctr_ctx_mt *c)
  *    Find empty keystream queues and fill them using their counter.
  *    When done, update counter for the next fill.
  */
-/* currently this is using the low level interface which is, sadly,
- * slower than the EVP interface by a long shot. The original (from the
+/* previously this used the low level interface which is, sadly,
+ * slower than the EVP interface by a long shot. The original ctx (from the
  * body of the code) isn't passed in here but we have the key and the counter
  * which means we should be able to create the exact same ctx and use that to
  * fill the keystream queues. I'm concerned about additional overhead but the
- * additional speed from AESNI shoudl make up for it.  */
+ * additional speed from AESNI should make up for it.  */
 
 static void *
 thread_loop(void *x)
@@ -301,12 +311,13 @@ thread_loop(void *x)
 	pthread_cleanup_push(thread_loop_stats, &stats);
 #endif
 
+	/* get the thread id to see if this is the first one */
 	pthread_rwlock_rdlock(&c->tid_lock);
 	first_tid = c->tid[0];
 	pthread_rwlock_unlock(&c->tid_lock);
 
+	/* create the context for this thread */
 	aesni_ctx = EVP_CIPHER_CTX_new();
-
 
 	/*
 	 * Handle the special case of startup, one thread must fill
@@ -314,11 +325,13 @@ thread_loop(void *x)
 	 */
 
 	if (pthread_equal(pthread_self(), first_tid)) {
+		/* get the first element of the keyque struct */
 		q = &c->q[0];
 		pthread_mutex_lock(&q->lock);
+		/* if we are in the INIT state then fill the queue */
 		if (q->qstate == KQINIT) {
-			//fprintf(stderr, "Filling first key queue\n");
-			/* initialize the cipher ctx with the key provided */
+			/* initialize the cipher ctx with the key provided
+			 * determinbe which cipher to use based on the key size */
 			if (c->keylen == 256)
 				EVP_EncryptInit_ex(aesni_ctx, EVP_aes_256_ctr(), NULL, c->orig_key, NULL);
 			else if (c->keylen == 128)
@@ -329,10 +342,11 @@ thread_loop(void *x)
 				logit("Invalid key length of %d in AES CTR MT. Exiting", c->keylen);
 				exit(1);
 			}
+			/* fill the queue */
 			for (i = 0; i < KQLEN; i++) {
 				/* set the counter to q-ctr*/
 				EVP_EncryptInit_ex(aesni_ctx, NULL, NULL, NULL, q->ctr);
-				/* encypher a block sized null string (mynull) with the key. This 
+				/* encypher a block sized null string (mynull) with the key. This
 				 * returns the keystream because xoring the keystream
 				 * against null returns the keystream. Store that in the appropriate queue */
 				EVP_EncryptUpdate(aesni_ctx, q->keys[i], &outlen, mynull, AES_BLOCK_SIZE);
@@ -401,7 +415,7 @@ thread_loop(void *x)
 			logit("Invalid key length of %d in AES CTR MT. Exiting", c->keylen);
 			exit(1);
 		}
-
+		/* see coresponding block above for useful comments */
 		for (i = 0; i < KQLEN; i++) {
 			EVP_EncryptInit_ex(aesni_ctx, NULL, NULL, NULL, q->ctr);
 			EVP_EncryptUpdate(aesni_ctx, q->keys[i], &outlen, mynull, AES_BLOCK_SIZE);
@@ -425,6 +439,8 @@ thread_loop(void *x)
 	return NULL;
 }
 
+/* this is where the data is actually enciphered and deciphered */
+/* this may also benefit from upgrading to the EVP API */
 static int
 ssh_aes_ctr(EVP_CIPHER_CTX *ctx, u_char *dest, const u_char *src,
     LIBCRYPTO_EVP_INL_TYPE len)
@@ -520,11 +536,6 @@ ssh_aes_ctr(EVP_CIPHER_CTX *ctx, u_char *dest, const u_char *src,
 	return 1;
 }
 
-#define HAVE_NONE       0
-#define HAVE_KEY        1
-#define HAVE_IV         2
-int X = 0;
-
 /* initialize aes contexts and threads */
 static int
 ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
@@ -566,6 +577,10 @@ ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 
 	/* set the number of keystream queues */
 	numkq = cipher_threads * 2;
+	if (numkq > MAX_NUMKQ)
+		numkq = MAX_NUMKQ;
+
+	debug("Starting %d threads and %d queues\n", cipher_threads, numkq);
 
 	/* set up the initial state of c (our cipher stream struct) */
 	if ((c = EVP_CIPHER_CTX_get_app_data(ctx)) == NULL) {
@@ -612,7 +627,7 @@ ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 		AES_set_encrypt_key(key, EVP_CIPHER_CTX_key_length(ctx) * 8,
 		   &c->aes_key);
 		c->orig_key = key;
-		c->keylen = EVP_CIPHER_CTX_key_length(ctx) * 8; 
+		c->keylen = EVP_CIPHER_CTX_key_length(ctx) * 8;
 		c->state |= HAVE_KEY;
 	}
 
@@ -663,35 +678,36 @@ ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 /* this function is no longer used but might prove handy in the future
  * this comment also applies to ssh_aes_ctr_thread_reconstruction
  */
-void
-ssh_aes_ctr_thread_destroy(EVP_CIPHER_CTX *ctx)
-{
-	struct ssh_aes_ctr_ctx_mt *c;
 
-	c = EVP_CIPHER_CTX_get_app_data(ctx);
-	stop_and_join_pregen_threads(c);
-}
+/* void */
+/* ssh_aes_ctr_thread_destroy(EVP_CIPHER_CTX *ctx) */
+/* { */
+/* 	struct ssh_aes_ctr_ctx_mt *c; */
 
-void
-ssh_aes_ctr_thread_reconstruction(EVP_CIPHER_CTX *ctx)
-{
-	struct ssh_aes_ctr_ctx_mt *c;
-	int i;
-	c = EVP_CIPHER_CTX_get_app_data(ctx);
-	/* reconstruct threads */
-	for (i = 0; i < cipher_threads; i++) {
-		pthread_rwlock_wrlock(&c->tid_lock);
-		if (pthread_create(&c->tid[i], NULL, thread_loop, c) !=0 )
-			debug("AES-CTR MT could not create thread in %s", __FUNCTION__);
-		else {
-			c->struct_id = X++;
-			c->id[i] = i;
-			debug ("AES-CTR MT spawned a thread with id %lu in %s (%d, %d)", c->tid[i], __FUNCTION__, c->struct_id, c->id[i]);
-			debug("AES-CTR MT spawned a thread with id %lu in %s", c->tid[i], __FUNCTION__);
-		}
-		pthread_rwlock_unlock(&c->tid_lock);
-	}
-}
+/* 	c = EVP_CIPHER_CTX_get_app_data(ctx); */
+/* 	stop_and_join_pregen_threads(c); */
+/* } */
+
+/* void */
+/* ssh_aes_ctr_thread_reconstruction(EVP_CIPHER_CTX *ctx) */
+/* { */
+/* 	struct ssh_aes_ctr_ctx_mt *c; */
+/* 	int i; */
+/* 	c = EVP_CIPHER_CTX_get_app_data(ctx); */
+/* 	/\* reconstruct threads *\/ */
+/* 	for (i = 0; i < cipher_threads; i++) { */
+/* 		pthread_rwlock_wrlock(&c->tid_lock); */
+/* 		if (pthread_create(&c->tid[i], NULL, thread_loop, c) !=0 ) */
+/* 			debug("AES-CTR MT could not create thread in %s", __FUNCTION__); */
+/* 		else { */
+/* 			c->struct_id = X++; */
+/* 			c->id[i] = i; */
+/* 			debug ("AES-CTR MT spawned a thread with id %lu in %s (%d, %d)", c->tid[i], __FUNCTION__, c->struct_id, c->id[i]); */
+/* 			debug("AES-CTR MT spawned a thread with id %lu in %s", c->tid[i], __FUNCTION__); */
+/* 		} */
+/* 		pthread_rwlock_unlock(&c->tid_lock); */
+/* 	} */
+/* } */
 
 static int
 ssh_aes_ctr_cleanup(EVP_CIPHER_CTX *ctx)
