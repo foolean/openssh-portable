@@ -8,6 +8,8 @@ Public domain.
 
 #include "chacha.h"
 
+#include "omp.h"
+
 /* $OpenBSD: chacha.c,v 1.1 2013/11/21 00:45:44 djm Exp $ */
 
 typedef unsigned char u8;
@@ -80,8 +82,10 @@ chacha_keysetup(chacha_ctx *x,const u8 *k,u32 kbits)
 void
 chacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter)
 {
+  // block counter
   x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
   x->input[13] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 4);
+  // nonce
   x->input[14] = U8TO32_LITTLE(iv + 0);
   x->input[15] = U8TO32_LITTLE(iv + 4);
 }
@@ -89,131 +93,84 @@ chacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter)
 void
 chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 {
-  u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
-  u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
+  // u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
+  // u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
+  u32 j[16];
   u8 *ctarget = NULL;
   u8 tmp[64];
-  u_int i;
+  u_int i, b, finished = 0;
 
   if (!bytes) return;
+  // j[i] is copy of input to add with result of round function
+  for (i = 0; i < 16; i++) j[i] = x->input[i];
 
-  j0 = x->input[0];
-  j1 = x->input[1];
-  j2 = x->input[2];
-  j3 = x->input[3];
-  j4 = x->input[4];
-  j5 = x->input[5];
-  j6 = x->input[6];
-  j7 = x->input[7];
-  j8 = x->input[8];
-  j9 = x->input[9];
-  j10 = x->input[10];
-  j11 = x->input[11];
-  j12 = x->input[12];
-  j13 = x->input[13];
-  j14 = x->input[14];
-  j15 = x->input[15];
-
-  for (;;) {
-    if (bytes < 64) {
-      for (i = 0;i < bytes;++i) tmp[i] = m[i];
+  // infinite loop to process data in 64-byte chunks
+  #pragma omp parallel
+  #pragma omp single
+  {
+  while (!finished) {
+    #pragma omp task
+    {
+    u32 block[16];
+    if (bytes < 64) { // last 64-byte chunk
+      for (i = 0;i < bytes;++i) tmp[i] = m[i]; // create copy of end of msg
       m = tmp;
       ctarget = c;
       c = tmp;
     }
-    x0 = j0;
-    x1 = j1;
-    x2 = j2;
-    x3 = j3;
-    x4 = j4;
-    x5 = j5;
-    x6 = j6;
-    x7 = j7;
-    x8 = j8;
-    x9 = j9;
-    x10 = j10;
-    x11 = j11;
-    x12 = j12;
-    x13 = j13;
-    x14 = j14;
-    x15 = j15;
-    for (i = 20;i > 0;i -= 2) {
-      QUARTERROUND( x0, x4, x8,x12)
-      QUARTERROUND( x1, x5, x9,x13)
-      QUARTERROUND( x2, x6,x10,x14)
-      QUARTERROUND( x3, x7,x11,x15)
-      QUARTERROUND( x0, x5,x10,x15)
-      QUARTERROUND( x1, x6,x11,x12)
-      QUARTERROUND( x2, x7, x8,x13)
-      QUARTERROUND( x3, x4, x9,x14)
+    // copy input into block
+    for (i = 0; i < 16; i++) block[i] = j[i];
+
+    // round function
+    for (i = 20;i > 0;i -= 2) { // cha cha real smooth
+      QUARTERROUND( block[0], block[4], block[8],block[12])
+      QUARTERROUND( block[1], block[5], block[9],block[13])
+      QUARTERROUND( block[2], block[6],block[10],block[14])
+      QUARTERROUND( block[3], block[7],block[11],block[15])
+      QUARTERROUND( block[0], block[5],block[10],block[15])
+      QUARTERROUND( block[1], block[6],block[11],block[12])
+      QUARTERROUND( block[2], block[7], block[8],block[13])
+      QUARTERROUND( block[3], block[4], block[9],block[14])
     }
-    x0 = PLUS(x0,j0);
-    x1 = PLUS(x1,j1);
-    x2 = PLUS(x2,j2);
-    x3 = PLUS(x3,j3);
-    x4 = PLUS(x4,j4);
-    x5 = PLUS(x5,j5);
-    x6 = PLUS(x6,j6);
-    x7 = PLUS(x7,j7);
-    x8 = PLUS(x8,j8);
-    x9 = PLUS(x9,j9);
-    x10 = PLUS(x10,j10);
-    x11 = PLUS(x11,j11);
-    x12 = PLUS(x12,j12);
-    x13 = PLUS(x13,j13);
-    x14 = PLUS(x14,j14);
-    x15 = PLUS(x15,j15);
+    // add block and j
+    for (i = 0; i < 16; i++) block[i] = PLUS(block[i], j[i]);
 
-    x0 = XOR(x0,U8TO32_LITTLE(m + 0));
-    x1 = XOR(x1,U8TO32_LITTLE(m + 4));
-    x2 = XOR(x2,U8TO32_LITTLE(m + 8));
-    x3 = XOR(x3,U8TO32_LITTLE(m + 12));
-    x4 = XOR(x4,U8TO32_LITTLE(m + 16));
-    x5 = XOR(x5,U8TO32_LITTLE(m + 20));
-    x6 = XOR(x6,U8TO32_LITTLE(m + 24));
-    x7 = XOR(x7,U8TO32_LITTLE(m + 28));
-    x8 = XOR(x8,U8TO32_LITTLE(m + 32));
-    x9 = XOR(x9,U8TO32_LITTLE(m + 36));
-    x10 = XOR(x10,U8TO32_LITTLE(m + 40));
-    x11 = XOR(x11,U8TO32_LITTLE(m + 44));
-    x12 = XOR(x12,U8TO32_LITTLE(m + 48));
-    x13 = XOR(x13,U8TO32_LITTLE(m + 52));
-    x14 = XOR(x14,U8TO32_LITTLE(m + 56));
-    x15 = XOR(x15,U8TO32_LITTLE(m + 60));
+    // XOR x_i with message
+    for (i = 0; i < 16; i++) block[i] = XOR(block[i],U8TO32_LITTLE(m+4*i));
 
-    j12 = PLUSONE(j12);
-    if (!j12) {
-      j13 = PLUSONE(j13);
-      /* stopping at 2^70 bytes per nonce is user's responsibility */
-    }
+    
+    // output result
+    for (i = 0; i < 16; i++) U32TO8_LITTLE(c+4*i, block[i]);
 
-    U32TO8_LITTLE(c + 0,x0);
-    U32TO8_LITTLE(c + 4,x1);
-    U32TO8_LITTLE(c + 8,x2);
-    U32TO8_LITTLE(c + 12,x3);
-    U32TO8_LITTLE(c + 16,x4);
-    U32TO8_LITTLE(c + 20,x5);
-    U32TO8_LITTLE(c + 24,x6);
-    U32TO8_LITTLE(c + 28,x7);
-    U32TO8_LITTLE(c + 32,x8);
-    U32TO8_LITTLE(c + 36,x9);
-    U32TO8_LITTLE(c + 40,x10);
-    U32TO8_LITTLE(c + 44,x11);
-    U32TO8_LITTLE(c + 48,x12);
-    U32TO8_LITTLE(c + 52,x13);
-    U32TO8_LITTLE(c + 56,x14);
-    U32TO8_LITTLE(c + 60,x15);
-
+    // if last block
     if (bytes <= 64) {
       if (bytes < 64) {
-        for (i = 0;i < bytes;++i) ctarget[i] = c[i];
+        for (i = 0;i < bytes;++i) ctarget[i] = c[i]; // put final part of output into output pointer
       }
-      x->input[12] = j12;
-      x->input[13] = j13;
-      return;
+      // add one to block counter
+      j[12] = PLUSONE(j[12]);
+      if (!j[12]) {
+        j[13] = PLUSONE(j[13]);
+        /* stopping at 2^70 bytes per nonce is user's responsibility */
+      }
+      // put final block counter back into x
+      x->input[12] = j[12];
+      x->input[13] = j[13];
+      finished = 1; // exit loop
     }
+    }
+    // block finished
     bytes -= 64;
     c += 64;
     m += 64;
+
+    // add one to block counter
+    j[12] = PLUSONE(j[12]);
+    if (!j[12]) {
+      j[13] = PLUSONE(j[13]);
+      /* stopping at 2^70 bytes per nonce is user's responsibility */
+    }
   }
+  }
+  return;
 }
