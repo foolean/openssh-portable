@@ -98,22 +98,25 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   u32 j[16];
   u8 *ctarget = NULL;
   u8 tmp[64];
-  u_int i, b, finished = 0;
+  u_int i, finished = 0;
+  u32 b, numChunks = (bytes+63)/64;
+  u8 *msg, *dest;
 
   if (!bytes) return;
   // j[i] is copy of input to add with result of round function
   for (i = 0; i < 16; i++) j[i] = x->input[i];
 
   // infinite loop to process data in 64-byte chunks
-  #pragma omp parallel
-  #pragma omp single
+  #pragma omp parallel for private(dest, msg)
   {
-  while (!finished) {
-    #pragma omp task
-    {
+  for (b = 0; b < numChunks; b++) {
     u32 block[16];
-    if (bytes < 64) { // last 64-byte chunk
-      for (i = 0;i < bytes;++i) tmp[i] = m[i]; // create copy of end of msg
+    u32 bytesLeft = bytes - b*64;
+    msg = m + b*64;
+    dest = c + b*64;
+
+    if (bytesLeft < 64) { // last 64-byte chunk
+      for (i = 0;i < bytesLeft;++i) tmp[i] = m[i]; // create copy of end of msg
       m = tmp;
       ctarget = c;
       c = tmp;
@@ -142,33 +145,22 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     // output result
     for (i = 0; i < 16; i++) U32TO8_LITTLE(c+4*i, block[i]);
 
-    // if last block
-    if (bytes <= 64) {
-      if (bytes < 64) {
-        for (i = 0;i < bytes;++i) ctarget[i] = c[i]; // put final part of output into output pointer
-      }
-      // add one to block counter
-      j[12] = PLUSONE(j[12]);
-      if (!j[12]) {
-        j[13] = PLUSONE(j[13]);
-        /* stopping at 2^70 bytes per nonce is user's responsibility */
-      }
-      // put final block counter back into x
-      x->input[12] = j[12];
-      x->input[13] = j[13];
-      finished = 1; // exit loop
-    }
-    }
-    // block finished
-    bytes -= 64;
-    c += 64;
-    m += 64;
 
     // add one to block counter
     j[12] = PLUSONE(j[12]);
     if (!j[12]) {
       j[13] = PLUSONE(j[13]);
       /* stopping at 2^70 bytes per nonce is user's responsibility */
+    }
+
+    // if last block
+    if (bytesLeft <= 64) {
+      if (bytesLeft < 64) {
+        for (i = 0;i < bytesLeft;++i) ctarget[i] = c[i]; // put final part of output into output pointer
+      }
+      // put final block counter back into x
+      x->input[12] = j[12];
+      x->input[13] = j[13];
     }
   }
   }
