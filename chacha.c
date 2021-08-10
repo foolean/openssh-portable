@@ -160,8 +160,8 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
         for (i = 0;i < bytesLeft;++i) ctarget[i] = c[i]; // put final part of output into output pointer
       }
       // put final block counter back into x
-      x->input[12] = j[12];
-      x->input[13] = j[13];
+      x->input[12] = block[12];
+      x->input[13] = block[13];
     }
   }
   }
