@@ -124,6 +124,16 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     // copy input into block
     for (i = 0; i < 16; i++) block[i] = j[i];
 
+    // set block counter accordingly
+    for (i = 0; i < b; i++) {
+      // add one to block counter
+      block[12] = PLUSONE(block[12]);
+      if (!block[12]) {
+        block[13] = PLUSONE(block[13]);
+        /* stopping at 2^70 bytes per nonce is user's responsibility */
+      }
+    }
+
     // round function
     for (i = 20;i > 0;i -= 2) { // cha cha real smooth
       QUARTERROUND( block[0], block[4], block[8],block[12])
@@ -140,18 +150,9 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 
     // XOR x_i with message
     for (i = 0; i < 16; i++) block[i] = XOR(block[i],U8TO32_LITTLE(m+4*i));
-
     
     // output result
     for (i = 0; i < 16; i++) U32TO8_LITTLE(c+4*i, block[i]);
-
-
-    // add one to block counter
-    j[12] = PLUSONE(j[12]);
-    if (!j[12]) {
-      j[13] = PLUSONE(j[13]);
-      /* stopping at 2^70 bytes per nonce is user's responsibility */
-    }
 
     // if last block
     if (bytesLeft <= 64) {
