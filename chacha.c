@@ -107,7 +107,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   for (i = 0; i < 16; i++) j[i] = x->input[i];
 
   // infinite loop to process data in 64-byte chunks
-  #pragma omp parallel for private(dest, msg)
+  #pragma omp parallel for private(dest, msg) schedule(dynamic)
   {
   for (b = 0; b < numChunks; b++) {
     u32 block[16];
