@@ -53,7 +53,7 @@
 /* this is a default value. The actual number is
  * determined during init as a function of the number
  * of available cores */
-int cipher_threads = 4;
+int cipher_threads = 2;
 
 /* Number of keystream queues */
 /* ideally this should be large enough so that there is
@@ -67,7 +67,7 @@ int numkq = 4;
  * being that the queues are destroyed after a rekey
  * and at leats one has to be fully filled prior to
  * enciphering data we don't want this to be too large */
-#define KQLEN 16384
+#define KQLEN 8192
 
 /* Processor cacheline length */
 #define CACHELINE_LEN	64
@@ -532,44 +532,60 @@ ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 {
 	struct ssh_aes_ctr_ctx_mt *c;
 	int i;
-
+	
 	/* get the number of cores in the system */
 	/* if it's not linux it currently defaults to 2 */
 	/* divide by 2 to get threads for each direction (MODE_IN||MODE_OUT) */
-/* #ifdef __linux__ */
-/* 	cipher_threads = sysconf(_SC_NPROCESSORS_ONLN) / 2; */
-/* #endif /\*__linux__*\/ */
-/* #ifdef __APPLE__ */
-/* 	cipher_threads = sysconf(_SC_NPROCESSORS_ONLN) / 2; */
-/* #endif /\*__APPLE__*\/ */
-/* #ifdef __FREEBSD__ */
-/* 	int req[2]; */
-/* 	size_t len; */
+#ifdef __linux__
+	int divisor; /* the goal is to use half of the physical cores on the system */
+	FILE *fp;
+	char status[32];
+	/* determine is hyperthreading is enabled */
+	fp = fopen("/sys/devices/system/cpu/smt/control", "r");
+	/* can't find the file so assume that it does not exist */
+	if (fp == NULL)
+	  divisor = 2;
+	fscanf(fp, "%[^\0]", status);
+	fclose(fp);
+	/* any value other than on indicates that HT is disabled */
+	if (strstr(status, "on") == 0)
+	  divisor = 4;
+	else
+	  divisor = 2;
+	cipher_threads = sysconf(_SC_NPROCESSORS_ONLN) / divisor;
+#endif /*__linux__*/
+#ifdef __APPLE__
+	int count;
+	size_t count_len = sizeof(count);
+	sysctlbyname("hw.physicalcpu", &count, &count_len, NULL, 0);
+	cipher_threads = count / 2;
+#endif /*__APPLE__*/
+#ifdef __FREEBSD__
+	int req[2];
+	size_t len;
 
-/* 	req[0] = CTL_HW; */
-/* 	req[1] = HW_NCPU; */
+	req[0] = CTL_HW;
+	req[1] = HW_NCPU;
 
-/* 	len = sizeof(ncpu); */
-/*         sysctl(req, 2, &cipher_threads, &len, NULL, 0); */
-/* 	cipher_threads = cipher_threads / 2; */
-/* #endif /\*__FREEBSD__*\/ */
+	len = sizeof(ncpu);
+        sysctl(req, 2, &cipher_threads, &len, NULL, 0);
+	cipher_threads = cipher_threads / 2;
+#endif /*__FREEBSD__*/
 
-/* 	/\* if they have less than 4 cores spin up 4 threads anyway *\/ */
-/* 	if (cipher_threads < 2) */
-/* 		cipher_threads = 2; */
+	/* if they have less than 4 cores spin up 4 threads anyway */
+	if (cipher_threads < 2)
+		cipher_threads = 2;
 
-/* 	/\* assure that we aren't trying to create more threads *\/ */
-/* 	/\* than we have in the struct. cipher_threads is half the *\/ */
-/* 	/\* total of allowable threads hence the odd looking math here *\/ */
-/* 	if (cipher_threads * 2 > MAX_THREADS) */
-/* 		cipher_threads = MAX_THREADS / 2; */
+	/* assure that we aren't trying to create more threads */
+	/* than we have in the struct. cipher_threads is half the */
+	/* total of allowable threads hence the odd looking math here */
+	if (cipher_threads * 2 > MAX_THREADS)
+		cipher_threads = MAX_THREADS / 2;
 
-/*	cipher_threads = 1;*/
-
-/*	fprintf(stderr, "Cipher threads: %d\n", cipher_threads); */
+	fprintf(stderr, "Cipher threads: %d\n", cipher_threads);
 	
-	/* set the number of keystream queues */
-	numkq = cipher_threads * 2;
+	/* set the number of keystream queues. 3 for each thread */
+	numkq = cipher_threads * 6;
 	if (numkq > MAX_NUMKQ)
 		numkq = MAX_NUMKQ;
 
