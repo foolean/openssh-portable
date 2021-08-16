@@ -534,24 +534,24 @@ ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 	int i;
 	
 	/* get the number of cores in the system */
-	/* if it's not linux it currently defaults to 2 */
-	/* divide by 2 to get threads for each direction (MODE_IN||MODE_OUT) */
+	/* peak performance seems to come with assigning half the number of
+	 * physical cores in the system. This was determined by fuzzing the variables */
 #ifdef __linux__
-	int divisor; /* the goal is to use half of the physical cores on the system */
+	int divisor; /* Wouldn't it be nice if linux had sysctlbyname? Yes. */
 	FILE *fp;
-	char status[32];
+	int status = 0;
 	/* determine is hyperthreading is enabled */
-	fp = fopen("/sys/devices/system/cpu/smt/control", "r");
+	fp = fopen("/sys/devices/system/cpu/smt/active", "r");
 	/* can't find the file so assume that it does not exist */
 	if (fp == NULL)
-	  divisor = 2;
-	fscanf(fp, "%[^\0]", status);
+		divisor = 2;
+	fscanf(fp, "%d", &status);
 	fclose(fp);
-	/* any value other than on indicates that HT is disabled */
-	if (strstr(status, "on") == 0)
-	  divisor = 4;
+	/* 1 for HT on 0 for HT off */
+	if (status == 1)
+		divisor = 4; 
 	else
-	  divisor = 2;
+		divisor = 2;
 	cipher_threads = sysconf(_SC_NPROCESSORS_ONLN) / divisor;
 #endif /*__linux__*/
 #ifdef __APPLE__
@@ -561,15 +561,13 @@ ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 	cipher_threads = count / 2;
 #endif /*__APPLE__*/
 #ifdef __FREEBSD__
-	int req[2];
-	size_t len;
-
-	req[0] = CTL_HW;
-	req[1] = HW_NCPU;
-
-	len = sizeof(ncpu);
-        sysctl(req, 2, &cipher_threads, &len, NULL, 0);
-	cipher_threads = cipher_threads / 2;
+	int threads_per_core;
+	int cores;
+	size_t cores_len = sizeof(cores);
+	size_t tpc_len = sizeof(threads_per_core);
+	sysctlbyname("kern.smp.threads_per_core", &threads_per_core, &tpc_len, NULL, 0);
+	sysctlbyname("kern.smp.cores", &cores, &cores_len, NULL, 0);
+	cipher_threads = cores / threads_per_core;
 #endif /*__FREEBSD__*/
 
 	/* if they have less than 4 cores spin up 4 threads anyway */
