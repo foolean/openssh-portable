@@ -123,7 +123,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     #pragma omp single
     {
       while (bytes > 0) {
-        #pragma omp task private(x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,i) firstprivate(c,m,j12,j13,bytes)
+        #pragma omp task private(x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,i) firstprivate(c,m,j12,j13,bytes) shared(j0,j1,j2,j3,j4,j5,j6,j7,j8,j9,j10,j11,j14,j15)
         {
           if (bytes < 64) { // last 64-byte chunk
             for (i = 0;i < bytes;++i) tmp[i] = m[i]; // create copy of end of msg
