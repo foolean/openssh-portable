@@ -21,7 +21,7 @@
 #include "openbsd-compat/openssl-compat.h"
 #endif
 
-#if !defined(HAVE_EVP_CHACHA20) || defined(HAVE_BROKEN_CHACHA20)
+#if defined(HAVE_EVP_CHACHA20) || defined(HAVE_BROKEN_CHACHA20)
 
 #include <sys/types.h>
 #include <stdarg.h> /* needed for log.h */
@@ -32,6 +32,13 @@
 #include "sshbuf.h"
 #include "ssherr.h"
 #include "cipher-chachapoly.h"
+
+#include "thpool.h" /** needed for Pithikos Pool Thread */
+#include "chacha.h"
+#include <math.h>
+
+//MIN Function
+#define MIN(a,b) (((a)<(b))?(a):(b))
 
 struct chachapoly_ctx {
 	struct chacha_ctx main_ctx, header_ctx;
@@ -74,6 +81,8 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 	const u_char one[8] = { 1, 0, 0, 0, 0, 0, 0, 0 }; /* NB little-endian */
 	u_char expected_tag[POLY1305_TAGLEN], poly_key[POLY1305_KEYLEN];
 	int r = SSH_ERR_INTERNAL_ERROR;
+	threadpool thpool;
+	u_int num_threads = 8;
 
 	/*
 	 * Run ChaCha20 once to generate the Poly1305 key. The IV is the
@@ -95,7 +104,7 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 			goto out;
 		}
 	}
-
+	
 	/* Crypt additional data */
 	if (aadlen) {
 		chacha_ivsetup(&ctx->header_ctx, seqbuf, NULL);
@@ -104,8 +113,57 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 
 	/* Set Chacha's block counter to 1 */
 	chacha_ivsetup(&ctx->main_ctx, seqbuf, one);
-	chacha_encrypt_bytes(&ctx->main_ctx, src + aadlen,
-	    dest + aadlen, len);
+
+	//creating thread pool only if more than 64*8 bytes worth of data
+	if (((len / CHACHA_BLOCKLEN) > num_threads)) {
+		//initializing thread pool
+		if ((thpool = thpool_init(num_threads))) {
+			r = SSH_ERR_THPOOL_INIT; //thread pool failed to initialize
+			goto out;
+		}
+		
+		//copying initialization vector 
+		struct chacha_ctx *chacha_iv = malloc(sizeof(struct chacha_ctx));
+		if (!chacha_iv) {
+			r = SSH_ERR_THPOOL_INIT; //malloc error
+			goto out;
+		}
+		//copy the input array w 16 u_int elems
+		memcpy(chacha_iv->input, (&ctx->main_ctx)->input, (16*sizeof(u_int)));
+		
+		u_int curr_blk = 0;
+		u_int remaining_bytes = len;
+		while (remaining_bytes) {
+			chacha_args *curr_args = malloc(sizeof(chacha_args));
+			if (!curr_args) {
+				r = SSH_ERR_THPOOL_INIT; //malloc error
+				goto out;
+			}
+			/**
+			 * IV already has blk counter set to 1;
+			 * we increment blk counter to correct blk number for each blk
+			 */
+			memcpy(curr_args->x, chacha_iv->input, (16*sizeof(u_int)));
+			curr_args->m = src + aadlen + (curr_blk * CHACHA_BLOCKLEN);
+			curr_args->c = dest + aadlen + (curr_blk * CHACHA_BLOCKLEN);
+			curr_args->blk_num = curr_blk;
+			curr_args->bytes = MIN(remaining_bytes, CHACHA_BLOCKLEN);
+			thpool_add_work(thpool, (void*)chacha_encrypt_bytes_pool, 
+							(void*)curr_args);
+			
+			remaining_bytes-=CHACHA_BLOCKLEN;
+			curr_blk++;
+		}
+		
+		//checks
+		//assert(i == num_blocks);
+		free(chacha_iv);
+		thpool_destroy(thpool);
+	} else {
+		//proceed without prethreading
+		chacha_encrypt_bytes(&ctx->main_ctx, src + aadlen,
+			dest + aadlen, len);
+	}
 
 	/* If encrypting, calculate and append tag */
 	if (do_encrypt) {

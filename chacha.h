@@ -16,6 +16,15 @@ struct chacha_ctx {
 	u_int input[16];
 };
 
+//arguments for chacha_encrypt_bytes
+typedef struct chacha_encrypt_bytes_args {
+	struct chacha_ctx *x;
+	const u_char *m;
+	u_char *c;
+	u_int bytes;
+	u_int blk_num;
+} chacha_args; 
+
 #define CHACHA_MINKEYLEN	16
 #define CHACHA_NONCELEN		8
 #define CHACHA_CTRLEN		8
@@ -31,6 +40,7 @@ void chacha_encrypt_bytes(struct chacha_ctx *x, const u_char *m,
     u_char *c, u_int bytes)
     __attribute__((__bounded__(__buffer__, 2, 4)))
     __attribute__((__bounded__(__buffer__, 3, 4)));
+void chacha_encrypt_bytes_pool(void *blk_args);
 
 #endif	/* CHACHA_H */
 
