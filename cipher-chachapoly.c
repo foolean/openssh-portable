@@ -82,7 +82,7 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 	u_char expected_tag[POLY1305_TAGLEN], poly_key[POLY1305_KEYLEN];
 	int r = SSH_ERR_INTERNAL_ERROR;
 	threadpool thpool;
-	u_int num_threads = 8;
+	u_int num_threads = 2;
 
 	/*
 	 * Run ChaCha20 once to generate the Poly1305 key. The IV is the
@@ -117,7 +117,8 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 	//creating thread pool only if more than 64*8 bytes worth of data
 	if (((len / CHACHA_BLOCKLEN) > num_threads)) {
 		//initializing thread pool
-		if ((thpool = thpool_init(num_threads))) {
+		thpool = thpool_init(num_threads);
+		if (thpool == NULL) {
 			r = SSH_ERR_THPOOL_INIT; //thread pool failed to initialize
 			goto out;
 		}
