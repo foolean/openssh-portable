@@ -132,10 +132,10 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 		//copy the input array w 16 u_int elems
 		memcpy(chacha_iv->input, (&ctx->main_ctx)->input, (16*sizeof(u_int)));
 		
-		u_int curr_blk = 0;
+		u_int curr_blk = 1;
 		u_int remaining_bytes = len;
 		while (remaining_bytes) {
-			chacha_args *curr_args = malloc(sizeof(chacha_args));
+			chacha_args *curr_args = curr_args_new();
 			if (!curr_args) {
 				r = SSH_ERR_THPOOL_INIT; //malloc error
 				goto out;
@@ -144,7 +144,7 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 			 * IV already has blk counter set to 1;
 			 * we increment blk counter to correct blk number for each blk
 			 */
-			memcpy(curr_args->x, chacha_iv->input, (16*sizeof(u_int)));
+			memcpy((curr_args->x)->input, chacha_iv->input, (16*sizeof(u_int)));
 			curr_args->m = src + aadlen + (curr_blk * CHACHA_BLOCKLEN);
 			curr_args->c = dest + aadlen + (curr_blk * CHACHA_BLOCKLEN);
 			curr_args->blk_num = curr_blk;

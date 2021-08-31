@@ -86,6 +86,40 @@ chacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter)
   x->input[15] = U8TO32_LITTLE(iv + 4);
 }
 
+
+/**
+ * curr_args_new() initializes a new instance of
+ * the chacha_args struct which is passed to helper
+ * threads for the parallel chacha.
+ */
+chacha_args *
+curr_args_new(void)
+{
+	chacha_args *res = malloc(sizeof(chacha_args));
+	if (!res)
+		return NULL;
+	res->x = malloc(sizeof(struct chacha_ctx));
+	res->m = malloc(sizeof(u_char));
+	res->c = malloc(sizeof(u_char));
+	if (!(res->x) || !(res->m) || !(res->c))
+		return NULL;
+	return res;
+}
+
+/**
+ * curr_args_free() frees the chacha_args structure.
+*/
+void
+curr_args_free(chacha_args *args)
+{
+  if (!args)
+    return;
+  free(args->x);
+  free(args->m);
+  free(args->c);
+  free(args);
+}
+
 void
 chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 {
