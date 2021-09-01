@@ -252,17 +252,30 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   }
 }
 
+/**
+ * This function is the same as chacha_encrypt_bytes
+ * except it is used by helper threads in the thread pool.
+ * Requires blk_args to not be NULL
+ */
 void chacha_encrypt_bytes_pool(void *blk_args) {
   chacha_args *args = (chacha_args*)blk_args;
   //original arguments for chacha_encrypt_bytes
-  chacha_ctx *x = args->x;
-  const u8 *m = args->m;
-  u8 *c = args->c;
-  u32 bytes = args->bytes; //should be <= 64
-  u_int blk_num = args->blk_num; //block number
-  free(args); 
+  chacha_ctx *x;
+  const u8 *m;
+  u8 *c;
+  u32 bytes; //should be <= 64
+  u_int blk_num; //block number
 
-  if (!bytes) return;
+  memcpy(x->input, (args->x)->input, (16*sizeof(u_int)));
+  memcpy(*m, *(args->m), sizeof(u8));
+  memcpy(*c, *(args->c), sizeof(u8));
+  memcpy(bytes, args->bytes, sizeof(u32));
+  memcpy(blk_num, args->blk_num, sizeof(u_int));
+
+  if (args->bytes == 0) {
+    curr_args_free(args);
+    return;
+  }
 
   //from original chacha_encrypt_bytes
   u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;

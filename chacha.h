@@ -14,7 +14,7 @@ Public domain.
 
 struct chacha_ctx {
 	u_int input[16];
-};
+};  
 
 //arguments for chacha_encrypt_bytes
 typedef struct chacha_encrypt_bytes_args {
@@ -41,6 +41,9 @@ void chacha_encrypt_bytes(struct chacha_ctx *x, const u_char *m,
     __attribute__((__bounded__(__buffer__, 2, 4)))
     __attribute__((__bounded__(__buffer__, 3, 4)));
 void chacha_encrypt_bytes_pool(void *blk_args);
+
+chacha_args *curr_args_new(void);
+void curr_args_free(chacha_args *args);
 
 #endif	/* CHACHA_H */
 
