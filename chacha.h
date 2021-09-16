@@ -18,7 +18,8 @@ struct chacha_ctx {
 
 //arguments for chacha_encrypt_bytes
 typedef struct chacha_encrypt_bytes_args {
-	struct chacha_ctx *x;
+    //equivalent to struct chacha_ctx
+	u_int x[16];
 	const u_char *m;
 	u_char *c;
 	u_int bytes;

@@ -82,7 +82,7 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 	u_char expected_tag[POLY1305_TAGLEN], poly_key[POLY1305_KEYLEN];
 	int r = SSH_ERR_INTERNAL_ERROR;
 	threadpool thpool;
-	u_int num_threads = 2;
+	u_int num_threads = 16;
 
 	/*
 	 * Run ChaCha20 once to generate the Poly1305 key. The IV is the
@@ -115,9 +115,9 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 	chacha_ivsetup(&ctx->main_ctx, seqbuf, one);
 
 	//creating thread pool only if more than 64*8 bytes worth of data
-	if (((len / CHACHA_BLOCKLEN) > num_threads)) {
+	if (((len / CHACHA_BLOCKLEN) > 2)) {
 		//initializing thread pool
-		thpool = thpool_init(num_threads);
+		thpool = thpool_init(1);
 		if (thpool == NULL) {
 			r = SSH_ERR_THPOOL_INIT; //thread pool failed to initialize
 			goto out;
@@ -144,7 +144,7 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 			 * IV already has blk counter set to 1;
 			 * we increment blk counter to correct blk number for each blk
 			 */
-			memcpy((curr_args->x)->input, chacha_iv->input, (16*sizeof(u_int)));
+			memcpy((curr_args->x), chacha_iv->input, (16*sizeof(u_int)));
 			curr_args->m = src + aadlen + (curr_blk * CHACHA_BLOCKLEN);
 			curr_args->c = dest + aadlen + (curr_blk * CHACHA_BLOCKLEN);
 			curr_args->blk_num = curr_blk;

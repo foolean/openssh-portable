@@ -98,10 +98,9 @@ curr_args_new(void)
 	chacha_args *res = malloc(sizeof(chacha_args));
 	if (!res)
 		return NULL;
-	res->x = malloc(sizeof(struct chacha_ctx));
 	res->m = malloc(sizeof(u_char));
 	res->c = malloc(sizeof(u_char));
-	if (!(res->x) || !(res->m) || !(res->c))
+	if (!(res->m) || !(res->c))
 		return NULL;
 	return res;
 }
@@ -114,7 +113,6 @@ curr_args_free(chacha_args *args)
 {
   if (!args)
     return;
-  free(args->x);
   free(args->m);
   free(args->c);
   free(args);
@@ -260,17 +258,22 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 void chacha_encrypt_bytes_pool(void *blk_args) {
   chacha_args *args = (chacha_args*)blk_args;
   //original arguments for chacha_encrypt_bytes
-  chacha_ctx *x;
-  const u8 *m;
-  u8 *c;
-  u32 bytes; //should be <= 64
-  u_int blk_num; //block number
+  //struct chacha_ctx *x = malloc(sizeof(struct chacha_ctx));
+  u_int input[16];
+  u_char *m = malloc(sizeof(u8));
+  u8 *c = malloc(sizeof(u8));
+  *m = args->m;
+  *c = args->c;
+  //const u8 m;
+  //u8 c;
+  u32 bytes = args->bytes; //should be <= 64
+  u_int blk_num = args->blk_num; //block number
 
-  memcpy(x->input, (args->x)->input, (16*sizeof(u_int)));
-  memcpy(*m, *(args->m), sizeof(u8));
-  memcpy(*c, *(args->c), sizeof(u8));
-  memcpy(bytes, args->bytes, sizeof(u32));
-  memcpy(blk_num, args->blk_num, sizeof(u_int));
+  memcpy(input, args->x, (16*sizeof(u_int)));
+  //memcpy(m, args->m, sizeof(u8));
+  //memcpy(c, args->c, sizeof(u8));
+  //memcpy(bytes, args->bytes, sizeof(u32));
+  //memcpy(blk_num, args->blk_num, sizeof(u_int));
 
   if (args->bytes == 0) {
     curr_args_free(args);
@@ -284,22 +287,22 @@ void chacha_encrypt_bytes_pool(void *blk_args) {
   u8 tmp[64];
   u_int i;
 
-  j0 = x->input[0];
-  j1 = x->input[1];
-  j2 = x->input[2];
-  j3 = x->input[3];
-  j4 = x->input[4];
-  j5 = x->input[5];
-  j6 = x->input[6];
-  j7 = x->input[7];
-  j8 = x->input[8];
-  j9 = x->input[9];
-  j10 = x->input[10];
-  j11 = x->input[11];
-  j12 = x->input[12];
-  j13 = x->input[13];
-  j14 = x->input[14];
-  j15 = x->input[15];
+  j0 = input[0];
+  j1 = input[1];
+  j2 = input[2];
+  j3 = input[3];
+  j4 = input[4];
+  j5 = input[5];
+  j6 = input[6];
+  j7 = input[7];
+  j8 = input[8];
+  j9 = input[9];
+  j10 = input[10];
+  j11 = input[11];
+  j12 = input[12];
+  j13 = input[13];
+  j14 = input[14];
+  j15 = input[15];
 
   //increment blk counter => number of blks after the first
   while (blk_num) {
@@ -398,8 +401,8 @@ void chacha_encrypt_bytes_pool(void *blk_args) {
   if (bytes < 64) {
     for (i = 0;i < bytes;++i) ctarget[i] = c[i];
   }
-  x->input[12] = j12;
-  x->input[13] = j13;
+  input[12] = j12;
+  input[13] = j13;
 
   return;
   //bytes should always be <= 64
