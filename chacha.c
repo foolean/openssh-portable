@@ -98,10 +98,10 @@ curr_args_new(void)
 	chacha_args *res = malloc(sizeof(chacha_args));
 	if (!res)
 		return NULL;
-	res->m = malloc(sizeof(u_char));
-	res->c = malloc(sizeof(u_char));
-	if (!(res->m) || !(res->c))
-		return NULL;
+	// res->m = malloc(sizeof(u_char));
+	// res->c = malloc(sizeof(u_char));
+	// if (!(res->m) || !(res->c))
+	// 	return NULL;
 	return res;
 }
 
@@ -113,8 +113,8 @@ curr_args_free(chacha_args *args)
 {
   if (!args)
     return;
-  free(args->m);
-  free(args->c);
+  //free(args->m);
+  //free(args->c);
   free(args);
 }
 
@@ -256,14 +256,15 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
  * Requires blk_args to not be NULL
  */
 void chacha_encrypt_bytes_pool(void *blk_args) {
+  fprintf(stderr, "start chacha_encrypt_bytes_pool\n");
   chacha_args *args = (chacha_args*)blk_args;
   //original arguments for chacha_encrypt_bytes
   //struct chacha_ctx *x = malloc(sizeof(struct chacha_ctx));
   u_int input[16];
-  u_char *m = malloc(sizeof(u8));
-  u8 *c = malloc(sizeof(u8));
-  *m = args->m;
-  *c = args->c;
+  const u8 *m = args->m;//malloc(sizeof(u8));
+  u8 *c = args->c;//malloc(sizeof(u8));
+  // *m = args->m;
+  // *c = args->c;
   //const u8 m;
   //u8 c;
   u32 bytes = args->bytes; //should be <= 64
@@ -276,10 +277,11 @@ void chacha_encrypt_bytes_pool(void *blk_args) {
   //memcpy(blk_num, args->blk_num, sizeof(u_int));
 
   if (args->bytes == 0) {
+    fprintf(stderr, "zero args\n");
     curr_args_free(args);
     return;
   }
-
+  fprintf(stderr, "non zero args\n");
   //from original chacha_encrypt_bytes
   u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
   u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
@@ -403,7 +405,9 @@ void chacha_encrypt_bytes_pool(void *blk_args) {
   }
   input[12] = j12;
   input[13] = j13;
-
+  // free(m);
+  // free(c);
+  fprintf(stderr, "ended \n");
   return;
   //bytes should always be <= 64
 }

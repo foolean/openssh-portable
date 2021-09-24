@@ -151,7 +151,7 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 			curr_args->bytes = MIN(remaining_bytes, CHACHA_BLOCKLEN);
 			thpool_add_work(thpool, (void*)chacha_encrypt_bytes_pool, 
 							(void*)curr_args);
-			
+			curr_args_free(curr_args);
 			remaining_bytes-=CHACHA_BLOCKLEN;
 			curr_blk++;
 		}
