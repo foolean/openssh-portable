@@ -32,8 +32,7 @@
 #include "sshbuf.h"
 #include "ssherr.h"
 #include "cipher-chachapoly.h"
-#include "pthread.h"
-#include "thpool.h"
+#include "pthread_pool.h"
 
 #define POKE_U32_LITTLE(p, v)			\
         do { \
@@ -51,30 +50,23 @@ struct chachapoly_ctx {
 	int reset;
 };
 
-struct chachathread {
-	u_int index;
+struct chachajob {
 	u_char *dest;
 	const u_char *src;
-	u_int startpos;
 	u_int len;
-	u_int aadlen;
-	u_int curpos;
 	u_int offset;
-	pthread_t tid;
 	u_char blk_ctr[8];
 	u_char seqbuf[8];
 	struct chachapoly_ctx *ctx;
-	int ctxinit;
-	int response;
-	pthread_mutex_t tlock;
-} chachathread;
+	int free_ctx;
+} chachajob;
 
 pthread_mutex_t lock;
 pthread_cond_t cond;
 int tcount = 0;
 void *thpool = NULL;
-struct chachathread thread[15]; /* why 16? */
-int MAX_THREADS = 16;
+#define MAX_JOBS 16
+struct chachajob ccjob[MAX_JOBS]; /* why 16? */
 
 struct chachapoly_ctx *
 chachapoly_new(const u_char *key, u_int keylen)
@@ -100,16 +92,12 @@ chachapoly_free(struct chachapoly_ctx *cpctx)
 }
 
 /* threaded function */
-void chachapoly_thread_work(void *thread) {
-	struct chachathread *lt = (struct chachathread *)thread;
-	//fprintf(stderr, "index[%d]: init cc iv with %d - %d\n",
-	//	lt->index, lt->blk_ctr[0], lt->blk_ctr[1]);
-	//pthread_mutex_lock(&lt->tlock);
+void *
+chachapoly_thread_work(void *job) {
+	struct chachajob *lt = (struct chachajob *)job;
 	chacha_ivsetup(&lt->ctx->main_ctx, lt->seqbuf, lt->blk_ctr);	
 	chacha_encrypt_bytes(&lt->ctx->main_ctx, lt->src + lt->offset, lt->dest + lt->offset, lt->len);
-	__sync_fetch_and_sub(&tcount,1);
-	//fprintf(stderr, "Tcount is %d for index[%d]\n", tcount, lt->index);
-	//pthread_mutex_unlock(&lt->tlock);
+	return (0);
 }
 
 /*
@@ -132,7 +120,6 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 	u_int chunk = 128 * 64; /* 128 cc20 blocks */
 
 	POKE_U32_LITTLE(one, 1);
-	//fprintf (stderr, "Len: %d, aadlen %d, authlen %d\n", len, aadlen, authlen);
 
 	/*
 	 * Run ChaCha20 once to generate the Poly1305 key. The IV is the
@@ -161,66 +148,60 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 		chacha_encrypt_bytes(&ctx->header_ctx, src, dest, aadlen);
 	}
 
-	/* initialize contexts for threads */
-	/* if the key is changed we need to reinitialize the keys */
-	if (ctx->reset == 1) {		
-		for (int i = 0; i < MAX_THREADS; i++) {
-			//pthread_mutex_init(&thread[i].tlock, NULL);
-			fprintf(stderr, "Initializing thread[%d].ctx (keylen: %d]\n", i, ctx->keylen);
-			thread[i].ctx = chachapoly_new(ctx->key, ctx->keylen);
-		}
-		ctx->reset = 0; /*reset complete */
-	}
-
-	/* Set Chacha's block counter to 1 */
-	if (len > chunk) {
-		u_int bufptr = 0;
+	/*
+	   basic premise. You have an inbound 'src' and an outbound 'dest'
+	   src has the enclear data and dest holds the crypto data. Take the
+	   src data and break it down into chunks and process each of those chunk
+	   in parallel. The resulting crypto'd chunk can then just be slotted into
+	   dest at the appropriate byte location.
+	 */
+	if (len >= chunk) { /* if the length of the inbound datagram is less than */
+        		    /* the chunk size don't bother with threading. */
+		u_int bufptr = 0; /* tracks where we are in the buffer */
 		int i = 0;
 		if (thpool == NULL) {
 			fprintf(stderr, "initializing thread pool\n");
-			thpool=thpool_init(3);
+			thpool=pool_start(chachapoly_thread_work, 4);
 		}
+		/* initialize contexts for threads */
+		/* if the key is changed we need to reinitialize the keys */
+		if (ctx->reset == 1) {		
+			for (int i = 0; i < MAX_JOBS; i++) {
+				//pthread_mutex_init(&thread[i].tlock, NULL);
+				fprintf(stderr, "Initializing ccjob[%d].ctx (keylen: %d]\n", i, ctx->keylen);
+				ccjob[i].ctx = chachapoly_new(ctx->key, ctx->keylen);
+			}
+			ctx->reset = 0; /*reset complete */
+		}
+		/* this actually determines the length of each chunk
+                 * and the offset for the jobs. We pass pointers to
+                 * src and dest. The threadpool slots everything in where
+                 * it needs to go using the length and offset */
 		while (bufptr < len) {
-			POKE_U32_LITTLE(thread[i].blk_ctr, (bufptr/64) +1);
-			thread[i].startpos = bufptr;
-			thread[i].offset = aadlen + bufptr;
-			if ((len - bufptr) >= chunk) {
-				thread[i].len = chunk;
-				//thread[i].dest = calloc (chunk, sizeof(u_char));
+			memset(ccjob[i].seqbuf, 0, sizeof(seqbuf));
+			POKE_U64(ccjob[i].seqbuf, seqnr);
+			POKE_U32_LITTLE(ccjob[i].blk_ctr, (bufptr/64) +1);
+			/* the offset is where we read the data from src and
+			 * where we put it into dest */
+			ccjob[i].offset = aadlen + bufptr;
+			if ((len - bufptr) >= chunk) { /* full sized chunk */
+				ccjob[i].len = chunk;
 				bufptr += chunk;
-			} else {
-				thread[i].len = len-bufptr;
-				//thread[i].dest = calloc (len, sizeof(u_char));
+			} else { /* partial chunk end of buffer */
+				ccjob[i].len = len-bufptr;
 				bufptr = len;
 			}
-			memset(thread[i].seqbuf, 0, sizeof(seqbuf));
-			POKE_U64(thread[i].seqbuf, seqnr);
-			//thread[i].ctx = ctx;
-			thread[i].index = i;
-			thread[i].src = src;
-			thread[i].dest = dest;
-			tcount++;
-			//pthread_create(&thread[i].tid, NULL, chachapoly_thread_work, &thread[i]);
-			thpool_add_work(thpool, chachapoly_thread_work, &thread[i]);
+			ccjob[i].src = src;
+			ccjob[i].dest = dest;
+			pool_enqueue(thpool, &ccjob[i]);
 			i++;
+			if (i >= MAX_JOBS) {
+				fatal("Threaded chacha tried to spawn too many jobs\n");
+			}
 		}
-		/* int foo = 0; */
-		/* do { */
-		/* 	foo++; */
-		/* 	__sync_synchronize(); */
-		/* } while (tcount); */
-		thpool_wait(thpool);
-		
-		/* for (int k = 0; k < i; k++) { */
-		/* 	fprintf (stderr, "%d: index: %d, startpos: %d len: %d tid: %ld\n", */
-		/* 		 k, thread[k].index, thread[k].startpos, thread[k].len, thread[k].tid); */
-		/* 	memcpy(dest+aadlen+thread[k].startpos, thread[k].dest, thread[k].len); */
-		/* 	free(thread[k].dest); */
-		/* } */
-		/* chacha_ivsetup(&ctx->main_ctx, seqbuf, one); */
-		/* chacha_encrypt_bytes(&ctx->main_ctx, src + aadlen, */
-		/* 		     dest + aadlen, len); */
-
+		while (pool_count(thpool)) {
+			/* sit and spin while we wait for the jobs to finish*/
+		}
 	} else {
 		chacha_ivsetup(&ctx->main_ctx, seqbuf, one);
 		chacha_encrypt_bytes(&ctx->main_ctx, src + aadlen,
