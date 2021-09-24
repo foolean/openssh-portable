@@ -104,7 +104,7 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 			goto out;
 		}
 	}
-	
+
 	/* Crypt additional data */
 	if (aadlen) {
 		chacha_ivsetup(&ctx->header_ctx, seqbuf, NULL);
@@ -122,8 +122,8 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 			r = SSH_ERR_THPOOL_INIT; //thread pool failed to initialize
 			goto out;
 		}
-		
-		//copying initialization vector 
+
+		//copying initialization vector
 		struct chacha_ctx *chacha_iv = malloc(sizeof(struct chacha_ctx));
 		if (!chacha_iv) {
 			r = SSH_ERR_THPOOL_INIT; //malloc error
@@ -131,8 +131,8 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 		}
 		//copy the input array w 16 u_int elems
 		memcpy(chacha_iv->input, (&ctx->main_ctx)->input, (16*sizeof(u_int)));
-		
-		u_int curr_blk = 1;
+
+		u_int curr_blk = 0;
 		u_int remaining_bytes = len;
 		while (remaining_bytes) {
 			chacha_args *curr_args = curr_args_new();
@@ -149,17 +149,19 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 			curr_args->c = dest + aadlen + (curr_blk * CHACHA_BLOCKLEN);
 			curr_args->blk_num = curr_blk;
 			curr_args->bytes = MIN(remaining_bytes, CHACHA_BLOCKLEN);
-			thpool_add_work(thpool, (void*)chacha_encrypt_bytes_pool, 
+			thpool_add_work(thpool, (void*)chacha_encrypt_bytes_pool,
 							(void*)curr_args);
 			curr_args_free(curr_args);
 			remaining_bytes-=CHACHA_BLOCKLEN;
 			curr_blk++;
+			thpool_wait(thpool); // just for debugging purposes
+			                     // otherwise it should be after this loop
 		}
-		
+
 		//checks
 		//assert(i == num_blocks);
 		free(chacha_iv);
-		thpool_destroy(thpool);
+		//thpool_destroy(thpool);
 	} else {
 		//proceed without prethreading
 		chacha_encrypt_bytes(&ctx->main_ctx, src + aadlen,

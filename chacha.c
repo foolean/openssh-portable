@@ -146,6 +146,8 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j14 = x->input[14];
   j15 = x->input[15];
 
+  fprintf(stderr, "NonThrd Block Number %d\n", j12);
+
   for (;;) {
     if (bytes < 64) {
       for (i = 0;i < bytes;++i) tmp[i] = m[i];
@@ -270,6 +272,8 @@ void chacha_encrypt_bytes_pool(void *blk_args) {
   u32 bytes = args->bytes; //should be <= 64
   u_int blk_num = args->blk_num; //block number
 
+  fprintf (stderr, "Block Number %d\n", blk_num);
+
   memcpy(input, args->x, (16*sizeof(u_int)));
   //memcpy(m, args->m, sizeof(u8));
   //memcpy(c, args->c, sizeof(u8));
@@ -316,7 +320,8 @@ void chacha_encrypt_bytes_pool(void *blk_args) {
     blk_num--;
   }
 
-  
+  fprintf(stderr, "j12 (thread) %d\n", j12);
+
   if (bytes < 64) {
     for (i = 0;i < bytes;++i) tmp[i] = m[i];
     m = tmp;
