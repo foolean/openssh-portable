@@ -94,7 +94,7 @@ void
 chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 {
   // u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
-  // u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
+  u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
   u32 j[16];
   u8 *ctarget = NULL;
   u8 tmp[64];
@@ -104,7 +104,22 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 
   if (!bytes) return;
   // j[i] is copy of input to add with result of round function
-  for (i = 0; i < 16; i++) j[i] = x->input[i];
+  j0 = x->input[0];
+  j1 = x->input[1];
+  j2 = x->input[2];
+  j3 = x->input[3];
+  j4 = x->input[4];
+  j5 = x->input[5];
+  j6 = x->input[6];
+  j7 = x->input[7];
+  j8 = x->input[8];
+  j9 = x->input[9];
+  j10 = x->input[10];
+  j11 = x->input[11];
+  j12 = x->input[12];
+  j13 = x->input[13];
+  j14 = x->input[14];
+  j15 = x->input[15];
 
   // infinite loop to process data in 64-byte chunks
   #pragma omp parallel for private(dest, msg)
