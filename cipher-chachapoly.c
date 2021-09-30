@@ -122,7 +122,6 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 			r = SSH_ERR_THPOOL_INIT; //thread pool failed to initialize
 			goto out;
 		}
-
 		//copying initialization vector
 		struct chacha_ctx *chacha_iv = malloc(sizeof(struct chacha_ctx));
 		if (!chacha_iv) {
@@ -131,10 +130,19 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 		}
 		//copy the input array w 16 u_int elems
 		memcpy(chacha_iv->input, (&ctx->main_ctx)->input, (16*sizeof(u_int)));
-
+		/**
+		 * Creating array for arguments for each helper thread. 
+		 * Is an array of pointers to each curr_arg
+		 */
+		// chacha_args **thpool_args = malloc(sizeof(chacha_args*)*((len / CHACHA_BLOCKLEN) + 1));
+		// if (!thpool_args){
+		// 	r = SSH_ERR_THPOOL_INIT; //malloc error
+		// 	goto out;
+		// }
 		u_int curr_blk = 0;
 		u_int remaining_bytes = len;
-		while (remaining_bytes) {
+		while (remaining_bytes >= CHACHA_BLOCKLEN) {
+			//fprintf(stderr, "start of loop bytes left:%u\n",remaining_bytes);
 			chacha_args *curr_args = curr_args_new();
 			if (!curr_args) {
 				r = SSH_ERR_THPOOL_INIT; //malloc error
@@ -149,15 +157,44 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 			curr_args->c = dest + aadlen + (curr_blk * CHACHA_BLOCKLEN);
 			curr_args->blk_num = curr_blk;
 			curr_args->bytes = MIN(remaining_bytes, CHACHA_BLOCKLEN);
+			//thpool_args[curr_blk] = curr_args;
 			thpool_add_work(thpool, (void*)chacha_encrypt_bytes_pool,
 							(void*)curr_args);
-			curr_args_free(curr_args);
+			//curr_args_free(curr_args);
 			remaining_bytes-=CHACHA_BLOCKLEN;
 			curr_blk++;
-			thpool_wait(thpool); // just for debugging purposes
+			//fprintf(stderr,"end of loop\n");
+			//thpool_wait(thpool); // just for debugging purposes
 			                     // otherwise it should be after this loop
 		}
-
+		//fprintf(stderr, "out of while loop\n");
+		//last loop cause last bit left
+		if (remaining_bytes > 0) {
+			//fprintf(stderr, "start of last extra loop bytes left:%u\n",remaining_bytes);
+			chacha_args *curr_args = curr_args_new();
+			if (!curr_args) {
+				r = SSH_ERR_THPOOL_INIT; //malloc error
+				goto out;
+			}
+			/**
+			 * IV already has blk counter set to 1;
+			 * we increment blk counter to correct blk number for each blk
+			 */
+			memcpy((curr_args->x), chacha_iv->input, (16*sizeof(u_int)));
+			curr_args->m = src + aadlen + (curr_blk * CHACHA_BLOCKLEN);
+			curr_args->c = dest + aadlen + (curr_blk * CHACHA_BLOCKLEN);
+			curr_args->blk_num = curr_blk;
+			curr_args->bytes = MIN(remaining_bytes, CHACHA_BLOCKLEN);
+			//thpool_args[curr_blk] = curr_args;
+			thpool_add_work(thpool, (void*)chacha_encrypt_bytes_pool,
+							(void*)curr_args);
+			//curr_args_free(curr_args);
+			remaining_bytes-=CHACHA_BLOCKLEN;
+			curr_blk++;
+			//fprintf(stderr,"end of last little loop\n");
+		}
+		thpool_wait(thpool);
+		//fprintf(stderr,"finished waiting\n");
 		//checks
 		//assert(i == num_blocks);
 		free(chacha_iv);
