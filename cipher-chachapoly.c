@@ -36,9 +36,7 @@
 #include "thpool.h" /** needed for Pithikos Pool Thread */
 #include "chacha.h"
 #include <math.h>
-
-//MIN Function
-#define MIN(a,b) (((a)<(b))?(a):(b))
+#include <stdbool.h>
 
 struct chachapoly_ctx {
 	struct chacha_ctx main_ctx, header_ctx;
@@ -141,7 +139,11 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 		// }
 		u_int curr_blk = 0;
 		u_int remaining_bytes = len;
-		while (remaining_bytes >= CHACHA_BLOCKLEN) {
+		bool has_remaining_bytes = true;
+		while (has_remaining_bytes) {
+			if (remaining_bytes <= 64) {
+				has_remaining_bytes = false;
+			}
 			//fprintf(stderr, "start of loop bytes left:%u\n",remaining_bytes);
 			chacha_args *curr_args = curr_args_new();
 			if (!curr_args) {
@@ -168,31 +170,6 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 			                     // otherwise it should be after this loop
 		}
 		//fprintf(stderr, "out of while loop\n");
-		//last loop cause last bit left
-		if (remaining_bytes > 0) {
-			//fprintf(stderr, "start of last extra loop bytes left:%u\n",remaining_bytes);
-			chacha_args *curr_args = curr_args_new();
-			if (!curr_args) {
-				r = SSH_ERR_THPOOL_INIT; //malloc error
-				goto out;
-			}
-			/**
-			 * IV already has blk counter set to 1;
-			 * we increment blk counter to correct blk number for each blk
-			 */
-			memcpy((curr_args->x), chacha_iv->input, (16*sizeof(u_int)));
-			curr_args->m = src + aadlen + (curr_blk * CHACHA_BLOCKLEN);
-			curr_args->c = dest + aadlen + (curr_blk * CHACHA_BLOCKLEN);
-			curr_args->blk_num = curr_blk;
-			curr_args->bytes = MIN(remaining_bytes, CHACHA_BLOCKLEN);
-			//thpool_args[curr_blk] = curr_args;
-			thpool_add_work(thpool, (void*)chacha_encrypt_bytes_pool,
-							(void*)curr_args);
-			//curr_args_free(curr_args);
-			remaining_bytes-=CHACHA_BLOCKLEN;
-			curr_blk++;
-			//fprintf(stderr,"end of last little loop\n");
-		}
 		thpool_wait(thpool);
 		//fprintf(stderr,"finished waiting\n");
 		//checks

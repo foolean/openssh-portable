@@ -413,6 +413,7 @@ void chacha_encrypt_bytes_pool(void *blk_args) {
   // free(m);
   // free(c);
   //fprintf(stderr, "ended \n");
+  curr_args_free(args);
   return;
   //bytes should always be <= 64
 }
