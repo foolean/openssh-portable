@@ -98,7 +98,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   u32 j[16];
   u8 *ctarget = NULL;
   u8 tmp[64];
-  u_int i, finished = 0;
+  u_int i, i1;
   u32 b, numChunks = (bytes+63)/64;
   u8 *msg, *dest;
 
@@ -122,14 +122,16 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j15 = x->input[15];
 
   // infinite loop to process data in 64-byte chunks
-  #pragma omp parallel for private(dest, msg)
+  #pragma omp parallel for private(dest, msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15)
   {
   for (b = 0; b < numChunks; b++) {
-    if (bytes < 64) {
-      for (i = 0;i < bytes;++i) tmp[i] = m[i];
+    msg = m + 64*b;
+    dest = c + 64*b;
+    if (b+1 >= numChunks) {
+      for (i1 = 0;i1 < bytes % 64;++i1) tmp[i] = m[i];
       m = tmp;
-      ctarget = c;
-      c = tmp;
+      ctarget = dest;
+      dest = tmp;
     }
     x0 = j0;
     x1 = j1;
@@ -147,7 +149,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     x13 = j13;
     x14 = j14;
     x15 = j15;
-    for (i = 20;i > 0;i -= 2) {
+    for (i1 = 20;i1 > 0;i1 -= 2) {
       QUARTERROUND( x0, x4, x8,x12)
       QUARTERROUND( x1, x5, x9,x13)
       QUARTERROUND( x2, x6,x10,x14)
@@ -174,22 +176,22 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     x14 = PLUS(x14,j14);
     x15 = PLUS(x15,j15);
 
-    x0 = XOR(x0,U8TO32_LITTLE(m + 0));
-    x1 = XOR(x1,U8TO32_LITTLE(m + 4));
-    x2 = XOR(x2,U8TO32_LITTLE(m + 8));
-    x3 = XOR(x3,U8TO32_LITTLE(m + 12));
-    x4 = XOR(x4,U8TO32_LITTLE(m + 16));
-    x5 = XOR(x5,U8TO32_LITTLE(m + 20));
-    x6 = XOR(x6,U8TO32_LITTLE(m + 24));
-    x7 = XOR(x7,U8TO32_LITTLE(m + 28));
-    x8 = XOR(x8,U8TO32_LITTLE(m + 32));
-    x9 = XOR(x9,U8TO32_LITTLE(m + 36));
-    x10 = XOR(x10,U8TO32_LITTLE(m + 40));
-    x11 = XOR(x11,U8TO32_LITTLE(m + 44));
-    x12 = XOR(x12,U8TO32_LITTLE(m + 48));
-    x13 = XOR(x13,U8TO32_LITTLE(m + 52));
-    x14 = XOR(x14,U8TO32_LITTLE(m + 56));
-    x15 = XOR(x15,U8TO32_LITTLE(m + 60));
+    x0 = XOR(x0,U8TO32_LITTLE(msg + 0));
+    x1 = XOR(x1,U8TO32_LITTLE(msg + 4));
+    x2 = XOR(x2,U8TO32_LITTLE(msg + 8));
+    x3 = XOR(x3,U8TO32_LITTLE(msg + 12));
+    x4 = XOR(x4,U8TO32_LITTLE(msg + 16));
+    x5 = XOR(x5,U8TO32_LITTLE(msg + 20));
+    x6 = XOR(x6,U8TO32_LITTLE(msg + 24));
+    x7 = XOR(x7,U8TO32_LITTLE(msg + 28));
+    x8 = XOR(x8,U8TO32_LITTLE(msg + 32));
+    x9 = XOR(x9,U8TO32_LITTLE(msg + 36));
+    x10 = XOR(x10,U8TO32_LITTLE(msg + 40));
+    x11 = XOR(x11,U8TO32_LITTLE(msg + 44));
+    x12 = XOR(x12,U8TO32_LITTLE(msg + 48));
+    x13 = XOR(x13,U8TO32_LITTLE(msg + 52));
+    x14 = XOR(x14,U8TO32_LITTLE(msg + 56));
+    x15 = XOR(x15,U8TO32_LITTLE(msg + 60));
 
     j12 = PLUSONE(j12);
     if (!j12) {
@@ -197,22 +199,22 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
       /* stopping at 2^70 bytes per nonce is user's responsibility */
     }
 
-    U32TO8_LITTLE(c + 0,x0);
-    U32TO8_LITTLE(c + 4,x1);
-    U32TO8_LITTLE(c + 8,x2);
-    U32TO8_LITTLE(c + 12,x3);
-    U32TO8_LITTLE(c + 16,x4);
-    U32TO8_LITTLE(c + 20,x5);
-    U32TO8_LITTLE(c + 24,x6);
-    U32TO8_LITTLE(c + 28,x7);
-    U32TO8_LITTLE(c + 32,x8);
-    U32TO8_LITTLE(c + 36,x9);
-    U32TO8_LITTLE(c + 40,x10);
-    U32TO8_LITTLE(c + 44,x11);
-    U32TO8_LITTLE(c + 48,x12);
-    U32TO8_LITTLE(c + 52,x13);
-    U32TO8_LITTLE(c + 56,x14);
-    U32TO8_LITTLE(c + 60,x15);
+    U32TO8_LITTLE(dest + 0,x0);
+    U32TO8_LITTLE(dest + 4,x1);
+    U32TO8_LITTLE(dest + 8,x2);
+    U32TO8_LITTLE(dest + 12,x3);
+    U32TO8_LITTLE(dest + 16,x4);
+    U32TO8_LITTLE(dest + 20,x5);
+    U32TO8_LITTLE(dest + 24,x6);
+    U32TO8_LITTLE(dest + 28,x7);
+    U32TO8_LITTLE(dest + 32,x8);
+    U32TO8_LITTLE(dest + 36,x9);
+    U32TO8_LITTLE(dest + 40,x10);
+    U32TO8_LITTLE(dest + 44,x11);
+    U32TO8_LITTLE(dest + 48,x12);
+    U32TO8_LITTLE(dest + 52,x13);
+    U32TO8_LITTLE(dest + 56,x14);
+    U32TO8_LITTLE(dest + 60,x15);
 
     if (bytes <= 64) {
       if (bytes < 64) {
@@ -222,9 +224,9 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
       x->input[13] = j13;
       return;
     }
-    bytes -= 64;
-    c += 64;
-    m += 64;
+    // bytes -= 64;
+    // c += 64;
+    // m += 64;
   } // for loop
   } // pragma omp parallel
 }
