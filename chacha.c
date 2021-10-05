@@ -122,14 +122,23 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j15 = x->input[15];
 
   // infinite loop to process data in 64-byte chunks
-  #pragma omp parallel for private(dest, msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15)
+  #pragma omp parallel for private(dest, msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15) firstprivate(j12,j13)
   {
   for (b = 0; b < numChunks; b++) {
+    // iterate block counter
+    for (i1 = 0; i1 < b; i1++) {
+      j12 = PLUSONE(j12);
+      if (!j12) {
+        j13 = PLUSONE(j13);
+        /* stopping at 2^70 bytes per nonce is user's responsibility */
+      }
+    }
+
     msg = m + 64*b;
     dest = c + 64*b;
     if (b+1 >= numChunks) {
-      for (i1 = 0;i1 < bytes % 64;++i1) tmp[i] = m[i];
-      m = tmp;
+      for (i1 = 0;i1 < bytes % 64;++i1) tmp[i] = msg[i];
+      msg = tmp;
       ctarget = dest;
       dest = tmp;
     }
@@ -193,11 +202,11 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     x14 = XOR(x14,U8TO32_LITTLE(msg + 56));
     x15 = XOR(x15,U8TO32_LITTLE(msg + 60));
 
-    j12 = PLUSONE(j12);
-    if (!j12) {
-      j13 = PLUSONE(j13);
-      /* stopping at 2^70 bytes per nonce is user's responsibility */
-    }
+    // j12 = PLUSONE(j12);
+    // if (!j12) {
+    //   j13 = PLUSONE(j13);
+    //   /* stopping at 2^70 bytes per nonce is user's responsibility */
+    // }
 
     U32TO8_LITTLE(dest + 0,x0);
     U32TO8_LITTLE(dest + 4,x1);
@@ -216,13 +225,13 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     U32TO8_LITTLE(dest + 56,x14);
     U32TO8_LITTLE(dest + 60,x15);
 
-    if (bytes <= 64) {
-      if (bytes < 64) {
-        for (i = 0;i < bytes;++i) ctarget[i] = c[i];
+    if (b+1 >= numChunks) {
+      if (bytes % 64 != 0) {
+        for (i1 = 0;i < bytes % 64;++i1) ctarget[i1] = dest[i1];
       }
       x->input[12] = j12;
       x->input[13] = j13;
-      return;
+      // return;
     }
     // bytes -= 64;
     // c += 64;
