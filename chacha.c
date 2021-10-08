@@ -99,7 +99,8 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   u8 *ctarget = NULL;
   u8 tmp[64];
   u_int i, i1;
-  u32 b, numChunks = (bytes+63)/64;
+  u32 b;
+  u32 numChunks = (bytes+63)/64;
   u8 *msg, *dest;
 
   if (!bytes) return;
@@ -122,17 +123,21 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j15 = x->input[15];
 
   // infinite loop to process data in 64-byte chunks
-  #pragma omp parallel for private(dest, msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15) firstprivate(j12,j13)
-  {
+  //#pragma omp parallel for private(dest, msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15) firstprivate(j12,j13)
+  //{
   for (b = 0; b < numChunks; b++) {
     // iterate block counter
-    for (i1 = 0; i1 < b; i1++) {
-      j12 = PLUSONE(j12);
-      if (!j12) {
-        j13 = PLUSONE(j13);
-        /* stopping at 2^70 bytes per nonce is user's responsibility */
-      }
-    }
+    // for (i1 = 0; i1 < b; i1++) {
+    //   j12 = PLUSONE(j12);
+    //   if (!j12) {
+    //     j13 = PLUSONE(j13);
+    //     /* stopping at 2^70 bytes per nonce is user's responsibility */
+    //   }
+    // }
+    fprintf(stderr, "J12 is %d\n", j12); // current block
+    fprintf(stderr, "b is: %d\n", b);
+    fprintf(stderr, "numChunks is: %d\n", numChunks); 
+    fprintf(stderr, "bytes is: %d\n", bytes);
 
     msg = m + 64*b;
     dest = c + 64*b;
@@ -202,11 +207,11 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     x14 = XOR(x14,U8TO32_LITTLE(msg + 56));
     x15 = XOR(x15,U8TO32_LITTLE(msg + 60));
 
-    // j12 = PLUSONE(j12);
-    // if (!j12) {
-    //   j13 = PLUSONE(j13);
-    //   /* stopping at 2^70 bytes per nonce is user's responsibility */
-    // }
+    j12 = PLUSONE(j12);
+    if (!j12) {
+      j13 = PLUSONE(j13);
+      /* stopping at 2^70 bytes per nonce is user's responsibility */
+    }
 
     U32TO8_LITTLE(dest + 0,x0);
     U32TO8_LITTLE(dest + 4,x1);
@@ -225,17 +230,23 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     U32TO8_LITTLE(dest + 56,x14);
     U32TO8_LITTLE(dest + 60,x15);
 
+    fprintf(stderr, "here1\n");
     if (b+1 >= numChunks) {
+      // fprintf(stderr, "here2\n");
       if (bytes % 64 != 0) {
-        for (i1 = 0;i < bytes % 64;++i1) ctarget[i1] = dest[i1];
+        for (i1 = 0;i1 < bytes % 64;++i1) ctarget[i1] = dest[i1];
       }
       x->input[12] = j12;
       x->input[13] = j13;
-      // return;
+      
+      m += 64*numChunks;
+      c += 64*numChunks;
+      bytes -= 64*numChunks;
+      return;
     }
     // bytes -= 64;
     // c += 64;
     // m += 64;
   } // for loop
-  } // pragma omp parallel
+  //} // pragma omp parallel
 }
