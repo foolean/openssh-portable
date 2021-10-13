@@ -96,7 +96,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   u32 masterj12, masterj13;
   u8 *ctarget = NULL;
   u8 tmp[64];
-  u_int i;
+  // u_int i;
   u_int i1;
   u32 b;
   u32 numChunks = (bytes+63)/64;
@@ -124,7 +124,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 
   masterj12 = j12;
   masterj13 = j13;
-
+  #pragma omp parallel for private(ctxt,msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15) firstprivate(j12,j13)
   for (b = 0; b < numChunks; b++) {
     j12 = masterj12;
     j13 = masterj13;
@@ -162,7 +162,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     x13 = j13;
     x14 = j14;
     x15 = j15;
-    for (i = 20;i > 0;i -= 2) {
+    for (i1 = 20;i1 > 0;i1 -= 2) {
       QUARTERROUND( x0, x4, x8,x12)
       QUARTERROUND( x1, x5, x9,x13)
       QUARTERROUND( x2, x6,x10,x14)
@@ -238,7 +238,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
       }
       x->input[12] = j12;
       x->input[13] = j13;
-      return;
+      // return;
     }
     // bytes -= 64;
     //c += 64;
