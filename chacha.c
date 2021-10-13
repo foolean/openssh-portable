@@ -123,7 +123,8 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   for (b = 0; b < numChunks; b++) {
     msg = m + 64*b;
     ctxt = c + 64*b;
-    if (bytes < 64) {
+    // if (bytes < 64) {
+    if (b+1 >= numChunks) {
       for (i = 0;i < bytes;++i) tmp[i] = msg[i];
       msg = tmp;
       ctarget = ctxt;
@@ -212,7 +213,8 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     U32TO8_LITTLE(ctxt + 56,x14);
     U32TO8_LITTLE(ctxt + 60,x15);
 
-    if (bytes <= 64) {
+    // if (bytes <= 64) {
+    if (b+1 >= numChunks) {
       if (bytes < 64) {
         for (i = 0;i < bytes;++i) ctarget[i] = ctxt[i];
       }
