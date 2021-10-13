@@ -226,7 +226,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
       x->input[13] = j13;
       return;
     }
-    bytes -= 64;
+    // bytes -= 64;
     //c += 64;
     //m += 64;
   }
