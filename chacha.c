@@ -99,6 +99,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   u32 b;
   u32 numChunks = (bytes+63)/64;
   u8 *msg;
+  u8 *ctxt;
 
   if (!bytes) return;
 
@@ -121,11 +122,12 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 
   for (b = 0; b < numChunks; b++) {
     msg = m + 64*b;
+    ctxt = c + 64*b;
     if (bytes < 64) {
       for (i = 0;i < bytes;++i) tmp[i] = msg[i];
       msg = tmp;
-      ctarget = c;
-      c = tmp;
+      ctarget = ctxt;
+      ctxt = tmp;
     }
     x0 = j0;
     x1 = j1;
@@ -193,33 +195,33 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
       /* stopping at 2^70 bytes per nonce is user's responsibility */
     }
 
-    U32TO8_LITTLE(c + 0,x0);
-    U32TO8_LITTLE(c + 4,x1);
-    U32TO8_LITTLE(c + 8,x2);
-    U32TO8_LITTLE(c + 12,x3);
-    U32TO8_LITTLE(c + 16,x4);
-    U32TO8_LITTLE(c + 20,x5);
-    U32TO8_LITTLE(c + 24,x6);
-    U32TO8_LITTLE(c + 28,x7);
-    U32TO8_LITTLE(c + 32,x8);
-    U32TO8_LITTLE(c + 36,x9);
-    U32TO8_LITTLE(c + 40,x10);
-    U32TO8_LITTLE(c + 44,x11);
-    U32TO8_LITTLE(c + 48,x12);
-    U32TO8_LITTLE(c + 52,x13);
-    U32TO8_LITTLE(c + 56,x14);
-    U32TO8_LITTLE(c + 60,x15);
+    U32TO8_LITTLE(ctxt + 0,x0);
+    U32TO8_LITTLE(ctxt + 4,x1);
+    U32TO8_LITTLE(ctxt + 8,x2);
+    U32TO8_LITTLE(ctxt + 12,x3);
+    U32TO8_LITTLE(ctxt + 16,x4);
+    U32TO8_LITTLE(ctxt + 20,x5);
+    U32TO8_LITTLE(ctxt + 24,x6);
+    U32TO8_LITTLE(ctxt + 28,x7);
+    U32TO8_LITTLE(ctxt + 32,x8);
+    U32TO8_LITTLE(ctxt + 36,x9);
+    U32TO8_LITTLE(ctxt + 40,x10);
+    U32TO8_LITTLE(ctxt + 44,x11);
+    U32TO8_LITTLE(ctxt + 48,x12);
+    U32TO8_LITTLE(ctxt + 52,x13);
+    U32TO8_LITTLE(ctxt + 56,x14);
+    U32TO8_LITTLE(ctxt + 60,x15);
 
     if (bytes <= 64) {
       if (bytes < 64) {
-        for (i = 0;i < bytes;++i) ctarget[i] = c[i];
+        for (i = 0;i < bytes;++i) ctarget[i] = ctxt[i];
       }
       x->input[12] = j12;
       x->input[13] = j13;
       return;
     }
     bytes -= 64;
-    c += 64;
+    //c += 64;
     //m += 64;
   }
 }
