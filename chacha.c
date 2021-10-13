@@ -93,6 +93,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 {
   u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
   u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
+  u32 masterj12, masterj13;
   u8 *ctarget = NULL;
   u8 tmp[64];
   u_int i;
@@ -121,7 +122,20 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j14 = x->input[14];
   j15 = x->input[15];
 
+  masterj12 = j12;
+  masterj13 = j13;
+
   for (b = 0; b < numChunks; b++) {
+    j12 = masterj12;
+    j13 = masterj13;
+
+    for (i1 = 0; i1 < b; i1++) {
+      j12 = PLUSONE(j12);
+      if (!j12) {
+        j13 = PLUSONE(j13);
+      }
+    }
+
     msg = m + 64*b;
     ctxt = c + 64*b;
     // if (bytes < 64) {
