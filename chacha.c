@@ -98,6 +98,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   u_int i;
   u32 b;
   u32 numChunks = (bytes+63)/64;
+  u8 *msg;
 
   if (!bytes) return;
 
@@ -119,9 +120,10 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j15 = x->input[15];
 
   for (b = 0; b < numChunks; b++) {
+    msg = m + 64*b;
     if (bytes < 64) {
-      for (i = 0;i < bytes;++i) tmp[i] = m[i];
-      m = tmp;
+      for (i = 0;i < bytes;++i) tmp[i] = msg[i];
+      msg = tmp;
       ctarget = c;
       c = tmp;
     }
@@ -168,22 +170,22 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     x14 = PLUS(x14,j14);
     x15 = PLUS(x15,j15);
 
-    x0 = XOR(x0,U8TO32_LITTLE(m + 0));
-    x1 = XOR(x1,U8TO32_LITTLE(m + 4));
-    x2 = XOR(x2,U8TO32_LITTLE(m + 8));
-    x3 = XOR(x3,U8TO32_LITTLE(m + 12));
-    x4 = XOR(x4,U8TO32_LITTLE(m + 16));
-    x5 = XOR(x5,U8TO32_LITTLE(m + 20));
-    x6 = XOR(x6,U8TO32_LITTLE(m + 24));
-    x7 = XOR(x7,U8TO32_LITTLE(m + 28));
-    x8 = XOR(x8,U8TO32_LITTLE(m + 32));
-    x9 = XOR(x9,U8TO32_LITTLE(m + 36));
-    x10 = XOR(x10,U8TO32_LITTLE(m + 40));
-    x11 = XOR(x11,U8TO32_LITTLE(m + 44));
-    x12 = XOR(x12,U8TO32_LITTLE(m + 48));
-    x13 = XOR(x13,U8TO32_LITTLE(m + 52));
-    x14 = XOR(x14,U8TO32_LITTLE(m + 56));
-    x15 = XOR(x15,U8TO32_LITTLE(m + 60));
+    x0 = XOR(x0,U8TO32_LITTLE(msg + 0));
+    x1 = XOR(x1,U8TO32_LITTLE(msg + 4));
+    x2 = XOR(x2,U8TO32_LITTLE(msg + 8));
+    x3 = XOR(x3,U8TO32_LITTLE(msg + 12));
+    x4 = XOR(x4,U8TO32_LITTLE(msg + 16));
+    x5 = XOR(x5,U8TO32_LITTLE(msg + 20));
+    x6 = XOR(x6,U8TO32_LITTLE(msg + 24));
+    x7 = XOR(x7,U8TO32_LITTLE(msg + 28));
+    x8 = XOR(x8,U8TO32_LITTLE(msg + 32));
+    x9 = XOR(x9,U8TO32_LITTLE(msg + 36));
+    x10 = XOR(x10,U8TO32_LITTLE(msg + 40));
+    x11 = XOR(x11,U8TO32_LITTLE(msg + 44));
+    x12 = XOR(x12,U8TO32_LITTLE(msg + 48));
+    x13 = XOR(x13,U8TO32_LITTLE(msg + 52));
+    x14 = XOR(x14,U8TO32_LITTLE(msg + 56));
+    x15 = XOR(x15,U8TO32_LITTLE(msg + 60));
 
     j12 = PLUSONE(j12);
     if (!j12) {
@@ -218,6 +220,6 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     }
     bytes -= 64;
     c += 64;
-    m += 64;
+    //m += 64;
   }
 }
