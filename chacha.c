@@ -215,7 +215,8 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 
     // if (bytes <= 64) {
     if (b+1 >= numChunks) {
-      if (bytes < 64) {
+      // if (bytes < 64) {
+      if (bytes % 64 != 0) {
         for (i = 0;i < bytes;++i) ctarget[i] = ctxt[i];
       }
       x->input[12] = j12;
