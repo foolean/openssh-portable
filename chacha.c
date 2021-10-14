@@ -114,9 +114,9 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 
   int stopCond = 0;
 
-  // #pragma omp parallel
-  // #pragma omp single
-  // {
+  #pragma omp parallel
+  #pragma omp single
+  {
   u32 taskBytes = bytes;
   u8 *taskC = c;
   u8 *taskM = m;
@@ -226,5 +226,5 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     taskC += 64;
     taskM += 64;
   } // end while
-  // } // end single
+  } // end single
 }
