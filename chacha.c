@@ -117,12 +117,13 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j15 = x->input[15];
 
   u32 taskBytes = bytes;
+  u8 *taskC = c;
   for (;;) {
     if (taskBytes < 64) {
       for (i = 0;i < taskBytes;++i) tmp[i] = m[i];
       m = tmp;
-      ctarget = c;
-      c = tmp;
+      ctarget = taskC;
+      taskC = tmp;
     }
     x0 = j0;
     x1 = j1;
@@ -190,33 +191,33 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
       /* stopping at 2^70 bytes per nonce is user's responsibility */
     }
 
-    U32TO8_LITTLE(c + 0,x0);
-    U32TO8_LITTLE(c + 4,x1);
-    U32TO8_LITTLE(c + 8,x2);
-    U32TO8_LITTLE(c + 12,x3);
-    U32TO8_LITTLE(c + 16,x4);
-    U32TO8_LITTLE(c + 20,x5);
-    U32TO8_LITTLE(c + 24,x6);
-    U32TO8_LITTLE(c + 28,x7);
-    U32TO8_LITTLE(c + 32,x8);
-    U32TO8_LITTLE(c + 36,x9);
-    U32TO8_LITTLE(c + 40,x10);
-    U32TO8_LITTLE(c + 44,x11);
-    U32TO8_LITTLE(c + 48,x12);
-    U32TO8_LITTLE(c + 52,x13);
-    U32TO8_LITTLE(c + 56,x14);
-    U32TO8_LITTLE(c + 60,x15);
+    U32TO8_LITTLE(taskC + 0,x0);
+    U32TO8_LITTLE(taskC + 4,x1);
+    U32TO8_LITTLE(taskC + 8,x2);
+    U32TO8_LITTLE(taskC + 12,x3);
+    U32TO8_LITTLE(taskC + 16,x4);
+    U32TO8_LITTLE(taskC + 20,x5);
+    U32TO8_LITTLE(taskC + 24,x6);
+    U32TO8_LITTLE(taskC + 28,x7);
+    U32TO8_LITTLE(taskC + 32,x8);
+    U32TO8_LITTLE(taskC + 36,x9);
+    U32TO8_LITTLE(taskC + 40,x10);
+    U32TO8_LITTLE(taskC + 44,x11);
+    U32TO8_LITTLE(taskC + 48,x12);
+    U32TO8_LITTLE(taskC + 52,x13);
+    U32TO8_LITTLE(taskC + 56,x14);
+    U32TO8_LITTLE(taskC + 60,x15);
 
     if (taskBytes <= 64) {
       if (taskBytes < 64) {
-        for (i = 0;i < taskBytes;++i) ctarget[i] = c[i];
+        for (i = 0;i < taskBytes;++i) ctarget[i] = taskC[i];
       }
       x->input[12] = j12;
       x->input[13] = j13;
       return;
     }
     taskBytes -= 64;
-    c += 64;
+    taskC += 64;
     m += 64;
   }
 }
