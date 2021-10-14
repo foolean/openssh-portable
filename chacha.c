@@ -8,6 +8,8 @@ Public domain.
 
 #include "chacha.h"
 
+#include "omp.h"
+
 /* $OpenBSD: chacha.c,v 1.1 2013/11/21 00:45:44 djm Exp $ */
 
 typedef unsigned char u8;
@@ -114,9 +116,10 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j14 = x->input[14];
   j15 = x->input[15];
 
+  u32 taskBytes = bytes;
   for (;;) {
-    if (bytes < 64) {
-      for (i = 0;i < bytes;++i) tmp[i] = m[i];
+    if (taskBytes < 64) {
+      for (i = 0;i < taskBytes;++i) tmp[i] = m[i];
       m = tmp;
       ctarget = c;
       c = tmp;
@@ -204,15 +207,15 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     U32TO8_LITTLE(c + 56,x14);
     U32TO8_LITTLE(c + 60,x15);
 
-    if (bytes <= 64) {
-      if (bytes < 64) {
-        for (i = 0;i < bytes;++i) ctarget[i] = c[i];
+    if (taskBytes <= 64) {
+      if (taskBytes < 64) {
+        for (i = 0;i < taskBytes;++i) ctarget[i] = c[i];
       }
       x->input[12] = j12;
       x->input[13] = j13;
       return;
     }
-    bytes -= 64;
+    taskBytes -= 64;
     c += 64;
     m += 64;
   }
