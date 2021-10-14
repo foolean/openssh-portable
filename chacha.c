@@ -91,7 +91,8 @@ chacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter)
 void
 chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 {
-  u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
+  // u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
+  u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j14, j15;
   u8 *ctarget = NULL;
   u8 tmp[64];
 
@@ -122,14 +123,16 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   u8 *taskM = m;
   u_int i;
   u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
-  j12 = x->input[12];
-  j13 = x->input[13];
+  u32 j12 = x->input[12];
+  u32 j13 = x->input[13];
   while (!stopCond) {
 
-    fprintf(stderr,"taskBytes (point 1) is: %d\n",taskBytes);
+    // fprintf(stderr,"taskBytes (point 1) is: %d\n",taskBytes);
+    fprintf(stderr,"j12 (point 1) is: %d\n",j12);
     #pragma omp task
     {
-    fprintf(stderr,"taskBytes (point 2) is: %d\n",taskBytes);
+    // fprintf(stderr,"taskBytes (point 2) is: %d\n",taskBytes);
+    fprintf(stderr,"j12 (point 2) is: %d\n",j12);
     if (taskBytes < 64) {
       for (i = 0;i < taskBytes;++i) tmp[i] = taskM[i];
       taskM = tmp;
@@ -221,11 +224,12 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     }
 
     if (taskBytes <= 64) {
+      #pragma omp taskwait
+      // fprintf(stderr,"here1\n");
       if (taskBytes < 64) {
-        fprintf(stderr,"here1\n");
         for (i = 0;i < taskBytes;++i) ctarget[i] = taskC[i];
-        fprintf(stderr,"here2\n");
       }
+      // fprintf(stderr,"here2\n");
       x->input[12] = j12;
       x->input[13] = j13;
       stopCond = 1;
