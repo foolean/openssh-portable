@@ -91,11 +91,9 @@ chacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter)
 void
 chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 {
-  u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
   u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
   u8 *ctarget = NULL;
   u8 tmp[64];
-  u_int i;
 
   if (!bytes) return;
 
@@ -119,6 +117,8 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   u32 taskBytes = bytes;
   u8 *taskC = c;
   u8 *taskM = m;
+  u_int i;
+  u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
   for (;;) {
     if (taskBytes < 64) {
       for (i = 0;i < taskBytes;++i) tmp[i] = taskM[i];
@@ -186,12 +186,6 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     x14 = XOR(x14,U8TO32_LITTLE(taskM + 56));
     x15 = XOR(x15,U8TO32_LITTLE(taskM + 60));
 
-    j12 = PLUSONE(j12);
-    if (!j12) {
-      j13 = PLUSONE(j13);
-      /* stopping at 2^70 bytes per nonce is user's responsibility */
-    }
-
     U32TO8_LITTLE(taskC + 0,x0);
     U32TO8_LITTLE(taskC + 4,x1);
     U32TO8_LITTLE(taskC + 8,x2);
@@ -208,6 +202,12 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     U32TO8_LITTLE(taskC + 52,x13);
     U32TO8_LITTLE(taskC + 56,x14);
     U32TO8_LITTLE(taskC + 60,x15);
+
+    j12 = PLUSONE(j12);
+    if (!j12) {
+      j13 = PLUSONE(j13);
+      /* stopping at 2^70 bytes per nonce is user's responsibility */
+    }
 
     if (taskBytes <= 64) {
       if (taskBytes < 64) {
