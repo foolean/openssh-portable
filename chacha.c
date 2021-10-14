@@ -125,6 +125,11 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j12 = x->input[12];
   j13 = x->input[13];
   while (!stopCond) {
+
+    fprintf(stderr,"taskBytes (point 1) is: %d\n",taskBytes);
+    #pragma omp task
+    {
+    fprintf(stderr,"taskBytes (point 2) is: %d\n",taskBytes);
     if (taskBytes < 64) {
       for (i = 0;i < taskBytes;++i) tmp[i] = taskM[i];
       taskM = tmp;
@@ -207,6 +212,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     U32TO8_LITTLE(taskC + 52,x13);
     U32TO8_LITTLE(taskC + 56,x14);
     U32TO8_LITTLE(taskC + 60,x15);
+    } // end task
 
     j12 = PLUSONE(j12);
     if (!j12) {
@@ -216,11 +222,14 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 
     if (taskBytes <= 64) {
       if (taskBytes < 64) {
+        fprintf(stderr,"here1\n");
         for (i = 0;i < taskBytes;++i) ctarget[i] = taskC[i];
+        fprintf(stderr,"here2\n");
       }
       x->input[12] = j12;
       x->input[13] = j13;
       stopCond = 1;
+      continue;
     }
     taskBytes -= 64;
     taskC += 64;
