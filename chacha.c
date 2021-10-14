@@ -109,8 +109,6 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j9 = x->input[9];
   j10 = x->input[10];
   j11 = x->input[11];
-  j12 = x->input[12];
-  j13 = x->input[13];
   j14 = x->input[14];
   j15 = x->input[15];
 
@@ -119,6 +117,8 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   u8 *taskM = m;
   u_int i;
   u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
+  j12 = x->input[12];
+  j13 = x->input[13];
   for (;;) {
     if (taskBytes < 64) {
       for (i = 0;i < taskBytes;++i) tmp[i] = taskM[i];
