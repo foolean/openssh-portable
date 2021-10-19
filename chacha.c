@@ -7,6 +7,7 @@ Public domain.
 #include "includes.h"
 
 #include "chacha.h"
+#include "omp.h"
 
 /* $OpenBSD: chacha.c,v 1.1 2013/11/21 00:45:44 djm Exp $ */
 
@@ -114,6 +115,10 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j14 = x->input[14];
   j15 = x->input[15];
 
+  #pragma omp parallel
+  {
+  #pragma omp single
+  {
   for (;;) {
     if (bytes < 64) {
       for (i = 0;i < bytes;++i) tmp[i] = m[i];
@@ -210,10 +215,12 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
       }
       x->input[12] = j12;
       x->input[13] = j13;
-      return;
+      break;
     }
     bytes -= 64;
     c += 64;
     m += 64;
   }
+  } // end omp single
+  } // end omp parallel
 }
