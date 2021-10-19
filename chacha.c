@@ -122,27 +122,33 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   j14 = x->input[14];
   j15 = x->input[15];
 
-  u32 j12s[numChunks];
-  u32 j13s[numChunks];
+  // u32 j12s[numChunks];
+  // u32 j13s[numChunks];
 
-  j12s[0] = j12;
-  j13s[0] = j13;
+  // j12s[0] = j12;
+  // j13s[0] = j13;
 
-  for (b = 1; b < numChunks; b++) {
-    j12s[b] = PLUSONE(j12s[b-1]);
-    if (!j12s[b-1]) {
-      j13s[b] = PLUSONE(j13s[b-1]);
-    } else {
-      j13s[b] = j13s[b-1];
-    }
-  }
+  // for (b = 1; b < numChunks; b++) {
+  //   j12s[b] = PLUSONE(j12s[b-1]);
+  //   if (!j12s[b-1]) {
+  //     j13s[b] = PLUSONE(j13s[b-1]);
+  //   } else {
+  //     j13s[b] = j13s[b-1];
+  //   }
+  // }
 
-  // masterj12 = j12;
-  // masterj13 = j13;
+  masterj12 = j12;
+  masterj13 = j13;
   #pragma omp parallel for private(ctxt,msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,j12,j13)
   for (b = 0; b < numChunks; b++) {
-    // j12 = masterj12;
-    // j13 = masterj13;
+    j12 = masterj12;
+    j13 = masterj13;
+
+    u32 newj12 = PLUS(j12,b);
+    if (newj12 < j12) {
+      j13 = PLUSONE(j13);
+    }
+    j12 = newj12;
 
     // for (i1 = 0; i1 < b; i1++) {
     //   j12 = PLUSONE(j12);
@@ -151,8 +157,8 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     //   }
     // }
 
-    j12 = j12s[b];
-    j13 = j13s[b];
+    // j12 = j12s[b];
+    // j13 = j13s[b];
 
     msg = m + 64*b;
     ctxt = c + 64*b;
@@ -224,11 +230,7 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     x14 = XOR(x14,U8TO32_LITTLE(msg + 56));
     x15 = XOR(x15,U8TO32_LITTLE(msg + 60));
 
-    j12 = PLUSONE(j12);
-    if (!j12) {
-      j13 = PLUSONE(j13);
-      /* stopping at 2^70 bytes per nonce is user's responsibility */
-    }
+    
 
     U32TO8_LITTLE(ctxt + 0,x0);
     U32TO8_LITTLE(ctxt + 4,x1);
@@ -253,6 +255,11 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
       if (bytes % 64 != 0) {
         // for (i = 0;i < bytes;++i) ctarget[i] = ctxt[i];
         for (i1 = 0; i1 < bytes % 64; ++i1) ctarget[i1] = ctxt[i1];
+      }
+      j12 = PLUSONE(j12);
+      if (!j12) {
+        j13 = PLUSONE(j13);
+        /* stopping at 2^70 bytes per nonce is user's responsibility */
       }
       x->input[12] = j12;
       x->input[13] = j13;
