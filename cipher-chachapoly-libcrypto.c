@@ -206,7 +206,6 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 		if (ctx->reset) {
 			for (int j = 0; j < MAX_JOBS; j++) {
 				ccjob[j].ctx = chachapoly_new(ctx->key, ctx->keylen);
-				ccjob[j].free_ctx = 1;
 				/* init seqbuf to 0 */
 				memset(ccjob[j].seqbuf, 0, sizeof(seqbuf));
 			}
