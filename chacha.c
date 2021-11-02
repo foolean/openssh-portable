@@ -206,22 +206,31 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
       QUARTERROUND( xs[2], xs[7], xs[8],xs[13])
       QUARTERROUND( xs[3], xs[4], xs[9],xs[14])
     }
-    x0 = PLUS(x0,j0);
-    x1 = PLUS(x1,j1);
-    x2 = PLUS(x2,j2);
-    x3 = PLUS(x3,j3);
-    x4 = PLUS(x4,j4);
-    x5 = PLUS(x5,j5);
-    x6 = PLUS(x6,j6);
-    x7 = PLUS(x7,j7);
-    x8 = PLUS(x8,j8);
-    x9 = PLUS(x9,j9);
-    x10 = PLUS(x10,j10);
-    x11 = PLUS(x11,j11);
-    x12 = PLUS(x12,j12);
-    x13 = PLUS(x13,j13);
-    x14 = PLUS(x14,j14);
-    x15 = PLUS(x15,j15);
+    for (i1 = 0; i1 < 16; i1++) {
+      if (i1 == 12) {
+        xs[i1] = PLUS(xs[i1],j12);
+      } else if (i1 == 13) {
+        xs[i1] = PLUS(xs[i1],j13);
+      } else {
+        xs[i1] = PLUS(xs[i1],js[i1]);
+      }
+    }
+    // x0 = PLUS(x0,j0);
+    // x1 = PLUS(x1,j1);
+    // x2 = PLUS(x2,j2);
+    // x3 = PLUS(x3,j3);
+    // x4 = PLUS(x4,j4);
+    // x5 = PLUS(x5,j5);
+    // x6 = PLUS(x6,j6);
+    // x7 = PLUS(x7,j7);
+    // x8 = PLUS(x8,j8);
+    // x9 = PLUS(x9,j9);
+    // x10 = PLUS(x10,j10);
+    // x11 = PLUS(x11,j11);
+    // x12 = PLUS(x12,j12);
+    // x13 = PLUS(x13,j13);
+    // x14 = PLUS(x14,j14);
+    // x15 = PLUS(x15,j15);
 
     x0 = XOR(x0,U8TO32_LITTLE(msg + 0));
     x1 = XOR(x1,U8TO32_LITTLE(msg + 4));
