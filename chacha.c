@@ -232,41 +232,49 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     // x14 = PLUS(x14,j14);
     // x15 = PLUS(x15,j15);
 
-    x0 = XOR(x0,U8TO32_LITTLE(msg + 0));
-    x1 = XOR(x1,U8TO32_LITTLE(msg + 4));
-    x2 = XOR(x2,U8TO32_LITTLE(msg + 8));
-    x3 = XOR(x3,U8TO32_LITTLE(msg + 12));
-    x4 = XOR(x4,U8TO32_LITTLE(msg + 16));
-    x5 = XOR(x5,U8TO32_LITTLE(msg + 20));
-    x6 = XOR(x6,U8TO32_LITTLE(msg + 24));
-    x7 = XOR(x7,U8TO32_LITTLE(msg + 28));
-    x8 = XOR(x8,U8TO32_LITTLE(msg + 32));
-    x9 = XOR(x9,U8TO32_LITTLE(msg + 36));
-    x10 = XOR(x10,U8TO32_LITTLE(msg + 40));
-    x11 = XOR(x11,U8TO32_LITTLE(msg + 44));
-    x12 = XOR(x12,U8TO32_LITTLE(msg + 48));
-    x13 = XOR(x13,U8TO32_LITTLE(msg + 52));
-    x14 = XOR(x14,U8TO32_LITTLE(msg + 56));
-    x15 = XOR(x15,U8TO32_LITTLE(msg + 60));
+    for (i1 = 0; i1 < 16; i1++) {
+      xs[i1] = XOR(xs[i1],U8TO32_LITTLE(msg+4*i1));
+    }
+
+    // x0 = XOR(x0,U8TO32_LITTLE(msg + 0));
+    // x1 = XOR(x1,U8TO32_LITTLE(msg + 4));
+    // x2 = XOR(x2,U8TO32_LITTLE(msg + 8));
+    // x3 = XOR(x3,U8TO32_LITTLE(msg + 12));
+    // x4 = XOR(x4,U8TO32_LITTLE(msg + 16));
+    // x5 = XOR(x5,U8TO32_LITTLE(msg + 20));
+    // x6 = XOR(x6,U8TO32_LITTLE(msg + 24));
+    // x7 = XOR(x7,U8TO32_LITTLE(msg + 28));
+    // x8 = XOR(x8,U8TO32_LITTLE(msg + 32));
+    // x9 = XOR(x9,U8TO32_LITTLE(msg + 36));
+    // x10 = XOR(x10,U8TO32_LITTLE(msg + 40));
+    // x11 = XOR(x11,U8TO32_LITTLE(msg + 44));
+    // x12 = XOR(x12,U8TO32_LITTLE(msg + 48));
+    // x13 = XOR(x13,U8TO32_LITTLE(msg + 52));
+    // x14 = XOR(x14,U8TO32_LITTLE(msg + 56));
+    // x15 = XOR(x15,U8TO32_LITTLE(msg + 60));
 
     
 
-    U32TO8_LITTLE(ctxt + 0,x0);
-    U32TO8_LITTLE(ctxt + 4,x1);
-    U32TO8_LITTLE(ctxt + 8,x2);
-    U32TO8_LITTLE(ctxt + 12,x3);
-    U32TO8_LITTLE(ctxt + 16,x4);
-    U32TO8_LITTLE(ctxt + 20,x5);
-    U32TO8_LITTLE(ctxt + 24,x6);
-    U32TO8_LITTLE(ctxt + 28,x7);
-    U32TO8_LITTLE(ctxt + 32,x8);
-    U32TO8_LITTLE(ctxt + 36,x9);
-    U32TO8_LITTLE(ctxt + 40,x10);
-    U32TO8_LITTLE(ctxt + 44,x11);
-    U32TO8_LITTLE(ctxt + 48,x12);
-    U32TO8_LITTLE(ctxt + 52,x13);
-    U32TO8_LITTLE(ctxt + 56,x14);
-    U32TO8_LITTLE(ctxt + 60,x15);
+    for (i1 = 0; i1 < 16; i1++) {
+      U32TO8_LITTLE(ctxt+4*i1,xs[i1]);
+    }
+
+    // U32TO8_LITTLE(ctxt + 0,x0);
+    // U32TO8_LITTLE(ctxt + 4,x1);
+    // U32TO8_LITTLE(ctxt + 8,x2);
+    // U32TO8_LITTLE(ctxt + 12,x3);
+    // U32TO8_LITTLE(ctxt + 16,x4);
+    // U32TO8_LITTLE(ctxt + 20,x5);
+    // U32TO8_LITTLE(ctxt + 24,x6);
+    // U32TO8_LITTLE(ctxt + 28,x7);
+    // U32TO8_LITTLE(ctxt + 32,x8);
+    // U32TO8_LITTLE(ctxt + 36,x9);
+    // U32TO8_LITTLE(ctxt + 40,x10);
+    // U32TO8_LITTLE(ctxt + 44,x11);
+    // U32TO8_LITTLE(ctxt + 48,x12);
+    // U32TO8_LITTLE(ctxt + 52,x13);
+    // U32TO8_LITTLE(ctxt + 56,x14);
+    // U32TO8_LITTLE(ctxt + 60,x15);
 
     // if (bytes <= 64) {
     if (b+1 >= numChunks) {
