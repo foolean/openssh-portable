@@ -197,8 +197,14 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
       // QUARTERROUND( x1, x6,x11,x12)
       // QUARTERROUND( x2, x7, x8,x13)
       // QUARTERROUND( x3, x4, x9,x14)
-      QUARTERROUND( xs[0], xs[4], xs[8], xs[12]);
-      QUARTERROUND( xs[1], xs[5], xs[9], xs[13]);
+      QUARTERROUND( xs[0], xs[4], xs[8],xs[12])
+      QUARTERROUND( xs[1], xs[5], xs[9],xs[13])
+      QUARTERROUND( xs[2], xs[6],xs[10],xs[14])
+      QUARTERROUND( xs[3], xs[7],xs[11],xs[15])
+      QUARTERROUND( xs[0], xs[5],xs[10],xs[15])
+      QUARTERROUND( xs[1], xs[6],xs[11],xs[12])
+      QUARTERROUND( xs[2], xs[7], xs[8],xs[13])
+      QUARTERROUND( xs[3], xs[4], xs[9],xs[14])
     }
     x0 = PLUS(x0,j0);
     x1 = PLUS(x1,j1);
