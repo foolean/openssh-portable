@@ -91,8 +91,11 @@ chacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter)
 void
 chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 {
-  u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
-  u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
+  // u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
+  u32 xs[16];
+  u32 js[16];
+  u32 j12, j13;
+  // u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
   u32 masterj12, masterj13;
   u8 *ctarget = NULL;
   u8 tmp[64];
@@ -105,44 +108,34 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 
   if (!bytes) return;
 
-  j0 = x->input[0];
-  j1 = x->input[1];
-  j2 = x->input[2];
-  j3 = x->input[3];
-  j4 = x->input[4];
-  j5 = x->input[5];
-  j6 = x->input[6];
-  j7 = x->input[7];
-  j8 = x->input[8];
-  j9 = x->input[9];
-  j10 = x->input[10];
-  j11 = x->input[11];
-  j12 = x->input[12];
-  j13 = x->input[13];
-  j14 = x->input[14];
-  j15 = x->input[15];
+  for (i1 = 0; i1 < 16; i1++) {
+    js[i1] = x->input[i1];
+  }
 
-  // u32 j12s[numChunks];
-  // u32 j13s[numChunks];
+  // j0 = x->input[0];
+  // j1 = x->input[1];
+  // j2 = x->input[2];
+  // j3 = x->input[3];
+  // j4 = x->input[4];
+  // j5 = x->input[5];
+  // j6 = x->input[6];
+  // j7 = x->input[7];
+  // j8 = x->input[8];
+  // j9 = x->input[9];
+  // j10 = x->input[10];
+  // j11 = x->input[11];
+  // j12 = x->input[12];
+  // j13 = x->input[13];
+  // j14 = x->input[14];
+  // j15 = x->input[15];
 
-  // j12s[0] = j12;
-  // j13s[0] = j13;
-
-  // for (b = 1; b < numChunks; b++) {
-  //   j12s[b] = PLUSONE(j12s[b-1]);
-  //   if (!j12s[b-1]) {
-  //     j13s[b] = PLUSONE(j13s[b-1]);
-  //   } else {
-  //     j13s[b] = j13s[b-1];
-  //   }
-  // }
-
-  masterj12 = j12;
-  masterj13 = j13;
-  #pragma omp parallel for private(ctxt,msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,j12,j13)
+  // masterj12 = js[12];
+  // masterj13 = js[13];
+  // #pragma omp parallel for private(ctxt,msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,j12,j13) num_threads(4)
+  #pragma omp parallel for private(ctxt,msg,i1,xs,j12,j13) num_threads(4)
   for (b = 0; b < numChunks; b++) {
-    j12 = masterj12;
-    j13 = masterj13;
+    j12 = js[12];
+    j13 = js[13];
 
     u32 newj12 = PLUS(j12,b);
     if (newj12 < j12) {
@@ -170,31 +163,42 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
       ctarget = ctxt;
       ctxt = tmp;
     }
-    x0 = j0;
-    x1 = j1;
-    x2 = j2;
-    x3 = j3;
-    x4 = j4;
-    x5 = j5;
-    x6 = j6;
-    x7 = j7;
-    x8 = j8;
-    x9 = j9;
-    x10 = j10;
-    x11 = j11;
-    x12 = j12;
-    x13 = j13;
-    x14 = j14;
-    x15 = j15;
+    for (i1 = 0; i1 < 16; i1++) {
+      if (i1 == 12) {
+        xs[i1] = j12;
+      } else if (i1 == 13) {
+        xs[i1] = j13;
+      } else {
+        xs[i1] = js[i1];
+      }
+    }
+    // x0 = j0;
+    // x1 = j1;
+    // x2 = j2;
+    // x3 = j3;
+    // x4 = j4;
+    // x5 = j5;
+    // x6 = j6;
+    // x7 = j7;
+    // x8 = j8;
+    // x9 = j9;
+    // x10 = j10;
+    // x11 = j11;
+    // x12 = j12;
+    // x13 = j13;
+    // x14 = j14;
+    // x15 = j15;
     for (i1 = 20;i1 > 0;i1 -= 2) {
-      QUARTERROUND( x0, x4, x8,x12)
-      QUARTERROUND( x1, x5, x9,x13)
-      QUARTERROUND( x2, x6,x10,x14)
-      QUARTERROUND( x3, x7,x11,x15)
-      QUARTERROUND( x0, x5,x10,x15)
-      QUARTERROUND( x1, x6,x11,x12)
-      QUARTERROUND( x2, x7, x8,x13)
-      QUARTERROUND( x3, x4, x9,x14)
+      // QUARTERROUND( x0, x4, x8,x12)
+      // QUARTERROUND( x1, x5, x9,x13)
+      // QUARTERROUND( x2, x6,x10,x14)
+      // QUARTERROUND( x3, x7,x11,x15)
+      // QUARTERROUND( x0, x5,x10,x15)
+      // QUARTERROUND( x1, x6,x11,x12)
+      // QUARTERROUND( x2, x7, x8,x13)
+      // QUARTERROUND( x3, x4, x9,x14)
+      QUARTERROUND( xs[0], xs[4], xs[8], xs[12]);
+      QUARTERROUND( xs[1], xs[5], xs[9], xs[13]);
     }
     x0 = PLUS(x0,j0);
     x1 = PLUS(x1,j1);
