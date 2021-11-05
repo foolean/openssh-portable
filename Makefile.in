@@ -79,6 +79,7 @@ XMSS_OBJS=\
 	xmss_wots.o
 
 LIBOPENSSH_OBJS=\
+	thpool.o \
 	ssh_api.o \
 	ssherr.o \
 	sshbuf.o \
