@@ -56,6 +56,9 @@ chachapoly_new(const u_char *key, u_int keylen)
 	return ctx;
 }
 
+//global to avoid reinitializing
+threadpool thpool = NULL;
+
 void
 chachapoly_free(struct chachapoly_ctx *cpctx)
 {
@@ -115,12 +118,14 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 	//creating thread pool only if more than 64*8 bytes worth of data
 	if (((len / CHACHA_BLOCKLEN) > 2)) {
 		//initializing thread pool
-		thpool = thpool_init(1);
 		if (thpool == NULL) {
-			r = SSH_ERR_THPOOL_INIT; //thread pool failed to initialize
-			goto out;
+			thpool = thpool_init(num_threads);
+			if (thpool == NULL) {
+				r = SSH_ERR_THPOOL_INIT; //thread pool failed to initialize
+				goto out;
+			}
 		}
-		//copying initialization vector
+		/*copying initialization vector
 		struct chacha_ctx *chacha_iv = malloc(sizeof(struct chacha_ctx));
 		if (!chacha_iv) {
 			r = SSH_ERR_THPOOL_INIT; //malloc error
@@ -128,15 +133,7 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 		}
 		//copy the input array w 16 u_int elems
 		memcpy(chacha_iv->input, (&ctx->main_ctx)->input, (16*sizeof(u_int)));
-		/**
-		 * Creating array for arguments for each helper thread. 
-		 * Is an array of pointers to each curr_arg
-		 */
-		// chacha_args **thpool_args = malloc(sizeof(chacha_args*)*((len / CHACHA_BLOCKLEN) + 1));
-		// if (!thpool_args){
-		// 	r = SSH_ERR_THPOOL_INIT; //malloc error
-		// 	goto out;
-		// }
+		*/
 		u_int curr_blk = 0;
 		u_int remaining_bytes = len;
 		bool has_remaining_bytes = true;
@@ -154,7 +151,7 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 			 * IV already has blk counter set to 1;
 			 * we increment blk counter to correct blk number for each blk
 			 */
-			memcpy((curr_args->x), chacha_iv->input, (16*sizeof(u_int)));
+			memcpy((curr_args->x), (&ctx->main_ctx)->input, (16*sizeof(u_int)));
 			curr_args->m = src + aadlen + (curr_blk * CHACHA_BLOCKLEN);
 			curr_args->c = dest + aadlen + (curr_blk * CHACHA_BLOCKLEN);
 			curr_args->blk_num = curr_blk;
@@ -174,7 +171,7 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 		//fprintf(stderr,"finished waiting\n");
 		//checks
 		//assert(i == num_blocks);
-		free(chacha_iv);
+		//free(chacha_iv);
 		//thpool_destroy(thpool);
 	} else {
 		//proceed without prethreading
