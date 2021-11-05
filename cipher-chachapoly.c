@@ -82,7 +82,7 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 	const u_char one[8] = { 1, 0, 0, 0, 0, 0, 0, 0 }; /* NB little-endian */
 	u_char expected_tag[POLY1305_TAGLEN], poly_key[POLY1305_KEYLEN];
 	int r = SSH_ERR_INTERNAL_ERROR;
-	threadpool thpool;
+	//threadpool thpool;
 	u_int num_threads = 16;
 
 	/*
@@ -118,8 +118,9 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 	//creating thread pool only if more than 64*8 bytes worth of data
 	if (((len / CHACHA_BLOCKLEN) > 2)) {
 		//initializing thread pool
-		if (thpool == NULL) {
-			thpool = thpool_init(num_threads);
+		if (!thpool) {
+			fprintf(stderr, "init threadpool\n");
+			thpool = thpool_init(4);
 			if (thpool == NULL) {
 				r = SSH_ERR_THPOOL_INIT; //thread pool failed to initialize
 				goto out;
