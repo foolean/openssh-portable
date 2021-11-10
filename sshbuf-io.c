@@ -115,3 +115,39 @@ sshbuf_write_file(const char *path, struct sshbuf *buf)
 	return 0;
 }
 
+int
+sshbuf_read(int fd, struct sshbuf *buf, size_t maxlen, size_t *rlen)
+{
+	int r, oerrno;
+	size_t adjust;
+	ssize_t rr;
+	u_char *d;
+
+	if (rlen != NULL)
+		*rlen = 0;
+	if ((r = sshbuf_reserve(buf, maxlen, &d)) != 0)
+		return r;
+	rr = read(fd, d, maxlen);
+	oerrno = errno;
+
+	/* Adjust the buffer to include only what was actually read */
+	if (rr > 0 && (adjust = maxlen - rr) > 0) {
+		if ((r = sshbuf_consume_end(buf, adjust)) != 0) {
+			/* avoid returning uninitialised data to caller */
+			memset(d + rr, '\0', adjust);
+			return SSH_ERR_INTERNAL_ERROR; /* shouldn't happen */
+		}
+	}
+	if (rr < 0) {
+		errno = oerrno;
+		return SSH_ERR_SYSTEM_ERROR;
+	} else if (rr == 0) {
+		errno = EPIPE;
+		return SSH_ERR_SYSTEM_ERROR;
+	}
+	/* success */
+	if (rlen != NULL)
+		*rlen = (size_t)rr;
+	return 0;
+}
+

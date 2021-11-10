@@ -234,6 +234,9 @@ struct Channel {
 /* Read buffer size */
 #define CHAN_RBUF	(16*1024)
 
+/* Maximum size for direct reads to buffers */
+#define CHANNEL_MAX_READ	(CHAN_SES_WINDOW_DEFAULT*2)
+
 /* Maximum channel input buffer size */
 #define CHAN_INPUT_MAX	(16*1024*1024)
 

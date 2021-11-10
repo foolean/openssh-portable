@@ -1936,12 +1936,34 @@ channel_handle_rfd(struct ssh *ssh, Channel *c,
 	char buf[CHAN_RBUF];
 	ssize_t len;
 	int r, force;
-
+	size_t avail, rlen, maxlen;
+	
 	force = c->isatty && c->detach_close && c->istate != CHAN_INPUT_CLOSED;
 
 	if (c->rfd == -1 || (!force && !FD_ISSET(c->rfd, readset)))
 		return 1;
-
+	/*
+	 * For "simple" channels (i.e. not datagram or filtered), try to
+	 * read up to a complete remote window of data directly to the
+	 * channel buffer.
+	 */
+	if (c->input_filter == NULL && !c->datagram) {
+		if (sshbuf_len(c->input) >= c->remote_window ||
+		    (avail = sshbuf_avail(c->input)) == 0)
+			return 1; /* shouldn't happen */
+		maxlen = c->remote_window - sshbuf_len(c->input);
+		if (maxlen > avail)
+			maxlen = avail;
+		if (maxlen > CHANNEL_MAX_READ)
+			maxlen = CHANNEL_MAX_READ;
+		if ((r = sshbuf_read(c->rfd, c->input, maxlen, &rlen)) != 0) {
+			debug2("channel %d: read failed rfd %d maxlen %zu: %s",
+			       c->self, c->rfd, maxlen, ssh_err(r));
+			goto rfail;
+		}
+		return 1;
+	}
+	
 	errno = 0;
 	len = read(c->rfd, buf, sizeof(buf));
 	if (len == -1 && (errno == EINTR ||
@@ -1953,8 +1975,10 @@ channel_handle_rfd(struct ssh *ssh, Channel *c,
 	if ((!c->isatty && len <= 0) ||
 	    (c->isatty && (len < 0 || (len == 0 && errno != 0)))) {
 #endif
-		debug2("channel %d: read<=0 rfd %d len %zd",
-		    c->self, c->rfd, len);
+		debug2("channel %d: read<=0 rfd %d len %zd: %s",
+		       c->self, c->rfd, len,
+		       len == 0 ? "closed" : strerror(errno));
+rfail:
 		if (c->type != SSH_CHANNEL_OPEN) {
 			debug2("channel %d: not open", c->self);
 			chan_mark_dead(ssh, c);
@@ -1972,8 +1996,7 @@ channel_handle_rfd(struct ssh *ssh, Channel *c,
 	} else if (c->datagram) {
 		if ((r = sshbuf_put_string(c->input, buf, len)) != 0)
 			fatal_fr(r, "channel %i: put datagram", c->self);
-	} else if ((r = sshbuf_put(c->input, buf, len)) != 0)
-		fatal_fr(r, "channel %i: put data", c->self);
+	}
 	return 1;
 }
 
