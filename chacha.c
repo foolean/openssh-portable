@@ -260,25 +260,14 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 void chacha_encrypt_bytes_pool(void *blk_args) {
   //fprintf(stderr, "start chacha_encrypt_bytes_pool\n");
   chacha_args *args = (chacha_args*)blk_args;
-  //original arguments for chacha_encrypt_bytes
-  //struct chacha_ctx *x = malloc(sizeof(struct chacha_ctx));
-  u_int input[16];
-  const u8 *m = args->m;//malloc(sizeof(u8));
-  u8 *c = args->c;//malloc(sizeof(u8));
-  // *m = args->m;
-  // *c = args->c;
-  //const u8 m;
-  //u8 c;
+  // u_int input[16];
+  u_int *input = args->x;
+  const u8 *m = args->m;
+  u8 *c = args->c;
   u32 bytes = args->bytes; //should be <= 64
   u_int blk_num = args->blk_num; //block number
-
   //fprintf (stderr, "Block Number %d\n", blk_num);
-
-  memcpy(input, args->x, (16*sizeof(u_int)));
-  //memcpy(m, args->m, sizeof(u8));
-  //memcpy(c, args->c, sizeof(u8));
-  //memcpy(bytes, args->bytes, sizeof(u32));
-  //memcpy(blk_num, args->blk_num, sizeof(u_int));
+  //memcpy(input, args->x, (16*sizeof(u_int)));
 
   if (args->bytes == 0) {
     //fprintf(stderr, "zero args\n");
@@ -408,8 +397,9 @@ void chacha_encrypt_bytes_pool(void *blk_args) {
   if (bytes < 64) {
     for (i = 0;i < bytes;++i) ctarget[i] = c[i];
   }
-  input[12] = j12;
-  input[13] = j13;
+  //is this necessary?
+  // input[12] = j12;
+  // input[13] = j13;
   // free(m);
   // free(c);
   //fprintf(stderr, "ended \n");
