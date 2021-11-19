@@ -31,6 +31,10 @@ void chacha_encrypt_bytes(struct chacha_ctx *x, const u_char *m,
     u_char *c, u_int bytes)
     __attribute__((__bounded__(__buffer__, 2, 4)))
     __attribute__((__bounded__(__buffer__, 3, 4)));
+void chacha_encrypt_bytes_omp(struct chacha_ctx *x, const u_char *m,
+    u_char *c, u_int bytes)
+    __attribute__((__bounded__(__buffer__, 2, 4)))
+    __attribute__((__bounded__(__buffer__, 3, 4)));
 
 #endif	/* CHACHA_H */
 
