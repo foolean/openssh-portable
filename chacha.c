@@ -231,7 +231,7 @@ chacha_encrypt_bytes_omp(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
   // u_int i;
   u_int i1;
   u32 b;
-  u32 numChunks = (bytes+63)/64;
+  u32 numChunks = bytes/64 + 1;
   u8 *msg;
   u8 *ctxt;
 
