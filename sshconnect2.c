@@ -550,6 +550,10 @@ ssh_userauth2(struct ssh *ssh, const char *local_user,
 #endif
 
 	debug("Authentication succeeded (%s).", authctxt.method->name);
+	/* we have authenticated successfully
+	* we want to communicate that to the threaded chacha20 cipher
+	*/
+	cipher_set_auth_state(1);
 }
 
 /* ARGSUSED */
@@ -785,6 +789,11 @@ input_userauth_pk_ok(int type, u_int32_t seq, struct ssh *ssh)
 		    key->type, pktype);
 		goto done;
 	}
+
+	/* we have authenticated successfully
+	* we want to communicate that to the threaded chacha20 cipher
+	*/
+	cipher_set_auth_state(1);
 
 	/*
 	 * search keys in the reverse order, because last candidate has been
