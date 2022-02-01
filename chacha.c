@@ -271,7 +271,7 @@ chacha_encrypt_bytes_omp(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
 
   masterj12 = j12;
   masterj13 = j13;
-  #pragma omp parallel for private(ctxt,msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,j12,j13)
+#pragma omp parallel for private(ctxt,msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,j12,j13) num_threads(6)
   for (b = 0; b < numChunks; b++) {
     j12 = masterj12;
     j13 = masterj13;
