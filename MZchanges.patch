@@ -1,0 +1,372 @@
+diff --git a/Makefile.in b/Makefile.in
+index 9ae28bac..c4363595 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -42,11 +42,11 @@ PATHS= -DSSHDIR=\"$(sysconfdir)\" \
+ 
+ CC=@CC@
+ LD=@LD@
+-CFLAGS=@CFLAGS@
+-CFLAGS_NOPIE=@CFLAGS_NOPIE@
++CFLAGS=@CFLAGS@ -fopenmp
++CFLAGS_NOPIE=@CFLAGS_NOPIE@ -fopenmp
+ CPPFLAGS=-I. -I$(srcdir) @CPPFLAGS@ $(PATHS) @DEFS@
+ PICFLAG=@PICFLAG@
+-LIBS=@LIBS@ -lpthread
++LIBS=@LIBS@ -lpthread -lomp
+ K5LIBS=@K5LIBS@
+ GSSLIBS=@GSSLIBS@
+ SSHDLIBS=@SSHDLIBS@
+diff --git a/chacha.c b/chacha.c
+index a84c25ea..f5d9bb3c 100644
+--- a/chacha.c
++++ b/chacha.c
+@@ -8,6 +8,8 @@ Public domain.
+ 
+ #include "chacha.h"
+ 
++#include "omp.h"
++
+ /* $OpenBSD: chacha.c,v 1.1 2013/11/21 00:45:44 djm Exp $ */
+ 
+ typedef unsigned char u8;
+@@ -217,3 +219,186 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
+     m += 64;
+   }
+ }
++
++void
++chacha_encrypt_bytes_omp(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
++{
++  u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
++  u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
++  u32 masterj12, masterj13;
++  u8 *ctarget = NULL;
++  u8 tmp[64];
++  // u_int i;
++  u_int i1;
++  u32 b;
++  u32 numChunks = bytes/64 + 1;
++  u8 *msg;
++  u8 *ctxt;
++
++  if (!bytes) return;
++
++  j0 = x->input[0];
++  j1 = x->input[1];
++  j2 = x->input[2];
++  j3 = x->input[3];
++  j4 = x->input[4];
++  j5 = x->input[5];
++  j6 = x->input[6];
++  j7 = x->input[7];
++  j8 = x->input[8];
++  j9 = x->input[9];
++  j10 = x->input[10];
++  j11 = x->input[11];
++  j12 = x->input[12];
++  j13 = x->input[13];
++  j14 = x->input[14];
++  j15 = x->input[15];
++
++  // u32 j12s[numChunks];
++  // u32 j13s[numChunks];
++
++  // j12s[0] = j12;
++  // j13s[0] = j13;
++
++  // for (b = 1; b < numChunks; b++) {
++  //   j12s[b] = PLUSONE(j12s[b-1]);
++  //   if (!j12s[b-1]) {
++  //     j13s[b] = PLUSONE(j13s[b-1]);
++  //   } else {
++  //     j13s[b] = j13s[b-1];
++  //   }
++  // }
++
++  masterj12 = j12;
++  masterj13 = j13;
++#pragma omp parallel for private(ctxt,msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,j12,j13) num_threads(6)
++  for (b = 0; b < numChunks; b++) {
++    j12 = masterj12;
++    j13 = masterj13;
++
++    u32 newj12 = PLUS(j12,b);
++    if (newj12 < j12) {
++      j13 = PLUSONE(j13);
++    }
++    j12 = newj12;
++
++    // for (i1 = 0; i1 < b; i1++) {
++    //   j12 = PLUSONE(j12);
++    //   if (!j12) {
++    //     j13 = PLUSONE(j13);
++    //   }
++    // }
++
++    // j12 = j12s[b];
++    // j13 = j13s[b];
++
++    msg = m + 64*b;
++    ctxt = c + 64*b;
++    // if (bytes < 64) {
++    if (b+1 >= numChunks) {
++      // for (i = 0;i < bytes;++i) tmp[i] = msg[i];
++      for (i1 = 0; i1 < bytes % 64; ++i1) tmp[i1] = msg[i1];
++      msg = tmp;
++      ctarget = ctxt;
++      ctxt = tmp;
++    }
++    x0 = j0;
++    x1 = j1;
++    x2 = j2;
++    x3 = j3;
++    x4 = j4;
++    x5 = j5;
++    x6 = j6;
++    x7 = j7;
++    x8 = j8;
++    x9 = j9;
++    x10 = j10;
++    x11 = j11;
++    x12 = j12;
++    x13 = j13;
++    x14 = j14;
++    x15 = j15;
++    for (i1 = 20;i1 > 0;i1 -= 2) {
++      QUARTERROUND( x0, x4, x8,x12)
++      QUARTERROUND( x1, x5, x9,x13)
++      QUARTERROUND( x2, x6,x10,x14)
++      QUARTERROUND( x3, x7,x11,x15)
++      QUARTERROUND( x0, x5,x10,x15)
++      QUARTERROUND( x1, x6,x11,x12)
++      QUARTERROUND( x2, x7, x8,x13)
++      QUARTERROUND( x3, x4, x9,x14)
++    }
++    x0 = PLUS(x0,j0);
++    x1 = PLUS(x1,j1);
++    x2 = PLUS(x2,j2);
++    x3 = PLUS(x3,j3);
++    x4 = PLUS(x4,j4);
++    x5 = PLUS(x5,j5);
++    x6 = PLUS(x6,j6);
++    x7 = PLUS(x7,j7);
++    x8 = PLUS(x8,j8);
++    x9 = PLUS(x9,j9);
++    x10 = PLUS(x10,j10);
++    x11 = PLUS(x11,j11);
++    x12 = PLUS(x12,j12);
++    x13 = PLUS(x13,j13);
++    x14 = PLUS(x14,j14);
++    x15 = PLUS(x15,j15);
++
++    x0 = XOR(x0,U8TO32_LITTLE(msg + 0));
++    x1 = XOR(x1,U8TO32_LITTLE(msg + 4));
++    x2 = XOR(x2,U8TO32_LITTLE(msg + 8));
++    x3 = XOR(x3,U8TO32_LITTLE(msg + 12));
++    x4 = XOR(x4,U8TO32_LITTLE(msg + 16));
++    x5 = XOR(x5,U8TO32_LITTLE(msg + 20));
++    x6 = XOR(x6,U8TO32_LITTLE(msg + 24));
++    x7 = XOR(x7,U8TO32_LITTLE(msg + 28));
++    x8 = XOR(x8,U8TO32_LITTLE(msg + 32));
++    x9 = XOR(x9,U8TO32_LITTLE(msg + 36));
++    x10 = XOR(x10,U8TO32_LITTLE(msg + 40));
++    x11 = XOR(x11,U8TO32_LITTLE(msg + 44));
++    x12 = XOR(x12,U8TO32_LITTLE(msg + 48));
++    x13 = XOR(x13,U8TO32_LITTLE(msg + 52));
++    x14 = XOR(x14,U8TO32_LITTLE(msg + 56));
++    x15 = XOR(x15,U8TO32_LITTLE(msg + 60));
++
++    
++
++    U32TO8_LITTLE(ctxt + 0,x0);
++    U32TO8_LITTLE(ctxt + 4,x1);
++    U32TO8_LITTLE(ctxt + 8,x2);
++    U32TO8_LITTLE(ctxt + 12,x3);
++    U32TO8_LITTLE(ctxt + 16,x4);
++    U32TO8_LITTLE(ctxt + 20,x5);
++    U32TO8_LITTLE(ctxt + 24,x6);
++    U32TO8_LITTLE(ctxt + 28,x7);
++    U32TO8_LITTLE(ctxt + 32,x8);
++    U32TO8_LITTLE(ctxt + 36,x9);
++    U32TO8_LITTLE(ctxt + 40,x10);
++    U32TO8_LITTLE(ctxt + 44,x11);
++    U32TO8_LITTLE(ctxt + 48,x12);
++    U32TO8_LITTLE(ctxt + 52,x13);
++    U32TO8_LITTLE(ctxt + 56,x14);
++    U32TO8_LITTLE(ctxt + 60,x15);
++
++    // if (bytes <= 64) {
++    if (b+1 >= numChunks) {
++      // if (bytes < 64) {
++      if (bytes % 64 != 0) {
++        // for (i = 0;i < bytes;++i) ctarget[i] = ctxt[i];
++        for (i1 = 0; i1 < bytes % 64; ++i1) ctarget[i1] = ctxt[i1];
++      }
++      j12 = PLUSONE(j12);
++      if (!j12) {
++        j13 = PLUSONE(j13);
++        /* stopping at 2^70 bytes per nonce is user's responsibility */
++      }
++      x->input[12] = j12;
++      x->input[13] = j13;
++      // return;
++    }
++    // bytes -= 64;
++    //c += 64;
++    //m += 64;
++  }
++}
+diff --git a/chacha.h b/chacha.h
+index 76205256..587da019 100644
+--- a/chacha.h
++++ b/chacha.h
+@@ -31,6 +31,10 @@ void chacha_encrypt_bytes(struct chacha_ctx *x, const u_char *m,
+     u_char *c, u_int bytes)
+     __attribute__((__bounded__(__buffer__, 2, 4)))
+     __attribute__((__bounded__(__buffer__, 3, 4)));
++void chacha_encrypt_bytes_omp(struct chacha_ctx *x, const u_char *m,
++    u_char *c, u_int bytes)
++    __attribute__((__bounded__(__buffer__, 2, 4)))
++    __attribute__((__bounded__(__buffer__, 3, 4)));
+ 
+ #endif	/* CHACHA_H */
+ 
+diff --git a/cipher-chachapoly-libcrypto.c b/cipher-chachapoly-libcrypto.c
+index 719f9c84..6e9d3c04 100644
+--- a/cipher-chachapoly-libcrypto.c
++++ b/cipher-chachapoly-libcrypto.c
+@@ -21,7 +21,8 @@
+ #include "openbsd-compat/openssl-compat.h"
+ #endif
+ 
+-#if defined(HAVE_EVP_CHACHA20) && !defined(HAVE_BROKEN_CHACHA20)
++// original: #if defined(HAVE_EVP_CHACHA20) && !defined(HAVE_BROKEN_CHACHA20)
++#if !defined(HAVE_EVP_CHACHA20) || defined(HAVE_BROKEN_CHACHA20)
+ 
+ #include <sys/types.h>
+ #include <stdarg.h> /* needed for log.h */
+diff --git a/cipher-chachapoly.c b/cipher-chachapoly.c
+index 716f8d42..6c5b2802 100644
+--- a/cipher-chachapoly.c
++++ b/cipher-chachapoly.c
+@@ -21,7 +21,8 @@
+ #include "openbsd-compat/openssl-compat.h"
+ #endif
+ 
+-#if !defined(HAVE_EVP_CHACHA20) || defined(HAVE_BROKEN_CHACHA20)
++// original: #if !defined(HAVE_EVP_CHACHA20) || defined(HAVE_BROKEN_CHACHA20)
++#if defined(HAVE_EVP_CHACHA20) || !defined(HAVE_BROKEN_CHACHA20)
+ 
+ #include <sys/types.h>
+ #include <stdarg.h> /* needed for log.h */
+@@ -33,6 +34,9 @@
+ #include "ssherr.h"
+ #include "cipher-chachapoly.h"
+ 
++/* authorization state, imported from cipher.c */
++extern int auth_state;
++
+ struct chachapoly_ctx {
+ 	struct chacha_ctx main_ctx, header_ctx;
+ };
+@@ -104,8 +108,13 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
+ 
+ 	/* Set Chacha's block counter to 1 */
+ 	chacha_ivsetup(&ctx->main_ctx, seqbuf, one);
+-	chacha_encrypt_bytes(&ctx->main_ctx, src + aadlen,
+-	    dest + aadlen, len);
++	if (auth_state == 1) {
++		chacha_encrypt_bytes_omp(&ctx->main_ctx, src + aadlen, 
++				dest + aadlen, len);
++	} else {
++		chacha_encrypt_bytes(&ctx->main_ctx, src + aadlen, 
++				dest + aadlen, len);
++	}
+ 
+ 	/* If encrypting, calculate and append tag */
+ 	if (do_encrypt) {
+diff --git a/cipher.c b/cipher.c
+index 243bfa29..49e1976a 100644
+--- a/cipher.c
++++ b/cipher.c
+@@ -59,6 +59,10 @@
+ /* for multi-threaded aes-ctr cipher */
+ extern const EVP_CIPHER *evp_aes_ctr_mt(void);
+ 
++/* set the current authorization state (0 for pre 1 for post) */
++/* to 0. For use by the threaded cc20 cipher */
++int auth_state = 0;
++
+ struct sshcipher_ctx {
+ 	int	plaintext;
+ 	int	encrypt;
+@@ -206,6 +210,15 @@ cipher_authlen(const struct sshcipher *c)
+ 	return (c->auth_len);
+ }
+ 
++/* this allows us to set the authorization state to
++* 0 or 1. 0 is preauth and the default and 1 is post auth
++* we are using this as a proxy to indicate if we are in the
++* privsep or not. This value is exported to the threaded
++* chacha20 code */
++void cipher_set_auth_state(int state) {
++	auth_state = state;
++}
++
+ u_int
+ cipher_ivlen(const struct sshcipher *c)
+ {
+diff --git a/cipher.h b/cipher.h
+index 3b8dd38b..3873f50d 100644
+--- a/cipher.h
++++ b/cipher.h
+@@ -70,6 +70,7 @@ u_int	 cipher_seclen(const struct sshcipher *);
+ u_int	 cipher_authlen(const struct sshcipher *);
+ u_int	 cipher_ivlen(const struct sshcipher *);
+ u_int	 cipher_is_cbc(const struct sshcipher *);
++void     cipher_set_auth_state(int);
+ void	 cipher_reset_multithreaded(void);
+ const char *cipher_ctx_name(const struct sshcipher_ctx *);
+ 
+diff --git a/sshconnect2.c b/sshconnect2.c
+index 9fc989d5..07643215 100644
+--- a/sshconnect2.c
++++ b/sshconnect2.c
+@@ -550,6 +550,10 @@ ssh_userauth2(struct ssh *ssh, const char *local_user,
+ #endif
+ 
+ 	debug("Authentication succeeded (%s).", authctxt.method->name);
++	/* we have authenticated successfully
++	* we want to communicate that to the threaded chacha20 cipher
++	*/
++	cipher_set_auth_state(1);
+ }
+ 
+ /* ARGSUSED */
+@@ -786,6 +790,11 @@ input_userauth_pk_ok(int type, u_int32_t seq, struct ssh *ssh)
+ 		goto done;
+ 	}
+ 
++	/* we have authenticated successfully
++	* we want to communicate that to the threaded chacha20 cipher
++	*/
++	cipher_set_auth_state(1);
++
+ 	/*
+ 	 * search keys in the reverse order, because last candidate has been
+ 	 * moved to the end of the queue.  this also avoids confusion by
+diff --git a/sshd.c b/sshd.c
+index 36f9d021..478b9de9 100644
+--- a/sshd.c
++++ b/sshd.c
+@@ -590,6 +590,9 @@ privsep_postauth(struct ssh *ssh, Authctxt *authctxt)
+ 	 * this information is not part of the key state.
+ 	 */
+ 	ssh_packet_set_authenticated(ssh);
++
++	/* tell the CC20 cipher that we are post auth */
++	cipher_set_auth_state(1);
+ }
+ 
+ static void
