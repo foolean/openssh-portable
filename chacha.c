@@ -8,6 +8,8 @@ Public domain.
 
 #include "chacha.h"
 
+#include "omp.h"
+
 /* $OpenBSD: chacha.c,v 1.1 2013/11/21 00:45:44 djm Exp $ */
 
 typedef unsigned char u8;
@@ -215,5 +217,190 @@ chacha_encrypt_bytes(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
     bytes -= 64;
     c += 64;
     m += 64;
+  }
+}
+
+void
+chacha_encrypt_bytes_omp(chacha_ctx *x,const u8 *m,u8 *c,u32 bytes)
+{
+  u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
+  u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;
+  u32 masterj12, masterj13;
+  u8 *ctarget = NULL;
+  u8 tmp[64];
+  // u_int i;
+  u_int i1;
+  u32 b;
+  u32 numChunks = bytes/64 + 1;
+  u8 *msg;
+  u8 *ctxt;
+
+  fprintf(stderr, ".");
+
+  if (!bytes) return;
+
+  j0 = x->input[0];
+  j1 = x->input[1];
+  j2 = x->input[2];
+  j3 = x->input[3];
+  j4 = x->input[4];
+  j5 = x->input[5];
+  j6 = x->input[6];
+  j7 = x->input[7];
+  j8 = x->input[8];
+  j9 = x->input[9];
+  j10 = x->input[10];
+  j11 = x->input[11];
+  j12 = x->input[12];
+  j13 = x->input[13];
+  j14 = x->input[14];
+  j15 = x->input[15];
+
+  // u32 j12s[numChunks];
+  // u32 j13s[numChunks];
+
+  // j12s[0] = j12;
+  // j13s[0] = j13;
+
+  // for (b = 1; b < numChunks; b++) {
+  //   j12s[b] = PLUSONE(j12s[b-1]);
+  //   if (!j12s[b-1]) {
+  //     j13s[b] = PLUSONE(j13s[b-1]);
+  //   } else {
+  //     j13s[b] = j13s[b-1];
+  //   }
+  // }
+
+  masterj12 = j12;
+  masterj13 = j13;
+#pragma omp parallel for private(ctxt,msg,i1,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,j12,j13) num_threads(6)
+  for (b = 0; b < numChunks; b++) {
+    j12 = masterj12;
+    j13 = masterj13;
+
+    u32 newj12 = PLUS(j12,b);
+    if (newj12 < j12) {
+      j13 = PLUSONE(j13);
+    }
+    j12 = newj12;
+
+    // for (i1 = 0; i1 < b; i1++) {
+    //   j12 = PLUSONE(j12);
+    //   if (!j12) {
+    //     j13 = PLUSONE(j13);
+    //   }
+    // }
+
+    // j12 = j12s[b];
+    // j13 = j13s[b];
+
+    msg = m + 64*b;
+    ctxt = c + 64*b;
+    // if (bytes < 64) {
+    if (b+1 >= numChunks) {
+      // for (i = 0;i < bytes;++i) tmp[i] = msg[i];
+      for (i1 = 0; i1 < bytes % 64; ++i1) tmp[i1] = msg[i1];
+      msg = tmp;
+      ctarget = ctxt;
+      ctxt = tmp;
+    }
+    x0 = j0;
+    x1 = j1;
+    x2 = j2;
+    x3 = j3;
+    x4 = j4;
+    x5 = j5;
+    x6 = j6;
+    x7 = j7;
+    x8 = j8;
+    x9 = j9;
+    x10 = j10;
+    x11 = j11;
+    x12 = j12;
+    x13 = j13;
+    x14 = j14;
+    x15 = j15;
+    for (i1 = 20;i1 > 0;i1 -= 2) {
+      QUARTERROUND( x0, x4, x8,x12)
+      QUARTERROUND( x1, x5, x9,x13)
+      QUARTERROUND( x2, x6,x10,x14)
+      QUARTERROUND( x3, x7,x11,x15)
+      QUARTERROUND( x0, x5,x10,x15)
+      QUARTERROUND( x1, x6,x11,x12)
+      QUARTERROUND( x2, x7, x8,x13)
+      QUARTERROUND( x3, x4, x9,x14)
+    }
+    x0 = PLUS(x0,j0);
+    x1 = PLUS(x1,j1);
+    x2 = PLUS(x2,j2);
+    x3 = PLUS(x3,j3);
+    x4 = PLUS(x4,j4);
+    x5 = PLUS(x5,j5);
+    x6 = PLUS(x6,j6);
+    x7 = PLUS(x7,j7);
+    x8 = PLUS(x8,j8);
+    x9 = PLUS(x9,j9);
+    x10 = PLUS(x10,j10);
+    x11 = PLUS(x11,j11);
+    x12 = PLUS(x12,j12);
+    x13 = PLUS(x13,j13);
+    x14 = PLUS(x14,j14);
+    x15 = PLUS(x15,j15);
+
+    x0 = XOR(x0,U8TO32_LITTLE(msg + 0));
+    x1 = XOR(x1,U8TO32_LITTLE(msg + 4));
+    x2 = XOR(x2,U8TO32_LITTLE(msg + 8));
+    x3 = XOR(x3,U8TO32_LITTLE(msg + 12));
+    x4 = XOR(x4,U8TO32_LITTLE(msg + 16));
+    x5 = XOR(x5,U8TO32_LITTLE(msg + 20));
+    x6 = XOR(x6,U8TO32_LITTLE(msg + 24));
+    x7 = XOR(x7,U8TO32_LITTLE(msg + 28));
+    x8 = XOR(x8,U8TO32_LITTLE(msg + 32));
+    x9 = XOR(x9,U8TO32_LITTLE(msg + 36));
+    x10 = XOR(x10,U8TO32_LITTLE(msg + 40));
+    x11 = XOR(x11,U8TO32_LITTLE(msg + 44));
+    x12 = XOR(x12,U8TO32_LITTLE(msg + 48));
+    x13 = XOR(x13,U8TO32_LITTLE(msg + 52));
+    x14 = XOR(x14,U8TO32_LITTLE(msg + 56));
+    x15 = XOR(x15,U8TO32_LITTLE(msg + 60));
+
+    
+
+    U32TO8_LITTLE(ctxt + 0,x0);
+    U32TO8_LITTLE(ctxt + 4,x1);
+    U32TO8_LITTLE(ctxt + 8,x2);
+    U32TO8_LITTLE(ctxt + 12,x3);
+    U32TO8_LITTLE(ctxt + 16,x4);
+    U32TO8_LITTLE(ctxt + 20,x5);
+    U32TO8_LITTLE(ctxt + 24,x6);
+    U32TO8_LITTLE(ctxt + 28,x7);
+    U32TO8_LITTLE(ctxt + 32,x8);
+    U32TO8_LITTLE(ctxt + 36,x9);
+    U32TO8_LITTLE(ctxt + 40,x10);
+    U32TO8_LITTLE(ctxt + 44,x11);
+    U32TO8_LITTLE(ctxt + 48,x12);
+    U32TO8_LITTLE(ctxt + 52,x13);
+    U32TO8_LITTLE(ctxt + 56,x14);
+    U32TO8_LITTLE(ctxt + 60,x15);
+
+    // if (bytes <= 64) {
+    if (b+1 >= numChunks) {
+      // if (bytes < 64) {
+      if (bytes % 64 != 0) {
+        // for (i = 0;i < bytes;++i) ctarget[i] = ctxt[i];
+        for (i1 = 0; i1 < bytes % 64; ++i1) ctarget[i1] = ctxt[i1];
+      }
+      j12 = PLUSONE(j12);
+      if (!j12) {
+        j13 = PLUSONE(j13);
+        /* stopping at 2^70 bytes per nonce is user's responsibility */
+      }
+      x->input[12] = j12;
+      x->input[13] = j13;
+      // return;
+    }
+    // bytes -= 64;
+    //c += 64;
+    //m += 64;
   }
 }

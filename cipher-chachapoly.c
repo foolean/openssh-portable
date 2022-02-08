@@ -21,7 +21,8 @@
 #include "openbsd-compat/openssl-compat.h"
 #endif
 
-#if !defined(HAVE_EVP_CHACHA20) || defined(HAVE_BROKEN_CHACHA20)
+// original: #if !defined(HAVE_EVP_CHACHA20) || defined(HAVE_BROKEN_CHACHA20)
+#if defined(HAVE_EVP_CHACHA20) || !defined(HAVE_BROKEN_CHACHA20)
 
 #include <sys/types.h>
 #include <stdarg.h> /* needed for log.h */
@@ -32,6 +33,9 @@
 #include "sshbuf.h"
 #include "ssherr.h"
 #include "cipher-chachapoly.h"
+
+/* authorization state, imported from cipher.c */
+extern int auth_state;
 
 struct chachapoly_ctx {
 	struct chacha_ctx main_ctx, header_ctx;
@@ -104,8 +108,13 @@ chachapoly_crypt(struct chachapoly_ctx *ctx, u_int seqnr, u_char *dest,
 
 	/* Set Chacha's block counter to 1 */
 	chacha_ivsetup(&ctx->main_ctx, seqbuf, one);
-	chacha_encrypt_bytes(&ctx->main_ctx, src + aadlen,
-	    dest + aadlen, len);
+	if (auth_state == 1) {
+		chacha_encrypt_bytes_omp(&ctx->main_ctx, src + aadlen, 
+				dest + aadlen, len);
+	} else {
+		chacha_encrypt_bytes(&ctx->main_ctx, src + aadlen, 
+				dest + aadlen, len);
+	}
 
 	/* If encrypting, calculate and append tag */
 	if (do_encrypt) {
