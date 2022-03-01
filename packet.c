@@ -1205,6 +1205,19 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	DBG(debug("send: len %d (includes padlen %d, aadlen %d)",
 	    len, padlen, aadlen));
 
+	/* is it possible to do the mac calculation out of sequence on 
+	 * a different thread? We'd need to copy some data over and 
+	 * put in a conditional to so the append process happens in the
+	 * right sequence. -cjr 3/1/2022
+	 * note to self: The mac is computed on the unencrypted data and then
+	 * that is ciphered so the mac *must* be computed before the encryption 
+	 * process. In this case sshbuf_ptr looks like thats the start of the
+	 * packet payload. So we'd need to copy the data (not the pointer) to a new
+	 * variable. First test might be to just do the copy and see what impact it has 
+	 * on performance. The big question is going to be how much time do we spend in
+	 * mac_computer versus cipher_crypt. 
+	 */
+
 	/* compute MAC over seqnr and packet(length fields, payload, padding) */
 	if (mac && mac->enabled && !mac->etm) {
 		if ((r = mac_compute(mac, state->p_send.seqnr,
@@ -1221,6 +1234,11 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	    sshbuf_ptr(state->outgoing_packet),
 	    len - aadlen, aadlen, authlen)) != 0)
 		goto out;
+
+	/* if the mac is done on it's own thread we need to signal to this 
+	 * thread that the mac is computed and spinlock if it's not
+	 */
+
 	/* append unencrypted MAC */
 	if (mac && mac->enabled) {
 		if (mac->etm) {
