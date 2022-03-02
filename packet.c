@@ -63,6 +63,7 @@
 #endif
 #include <signal.h>
 #include <time.h>
+#include <pthread.h>
 
 /*
  * Explicitly include OpenSSL before zlib as some versions of OpenSSL have
@@ -1097,6 +1098,27 @@ ssh_packet_log_type(u_char type)
 	}
 }
 
+struct mac_thread_job {
+	struct sshmac   *mac;           /* pointer to mac type */
+	u_int32_t       seqnr;          /* sequence number */
+	const u_char    *data;          /* pointer to packet data */
+	int             len;            /* length of data */
+	u_char          *macbuf_ptr;    /* pointer to mac buffer */
+	size_t          mac_size;       /* size of mac buffer */
+};
+
+
+void *
+ssh_mac_compute_thread (void *macjob)
+{
+	int r;
+	struct mac_thread_job *job;
+	
+	job = (struct mac_thread_job *) macjob;
+	r = mac_compute(job->mac, job->seqnr, job->data, (int)job->len, job->macbuf_ptr, (int)job->mac_size);
+	DBG(debug("done calc MAC out #%d", job.seqnr));
+	pthread_exit(&r);
+}
 /*
  * Finalize packet in SSH2 format (compress, mac, encrypt, enqueue)
  */
@@ -1112,7 +1134,12 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	struct sshmac *mac   = NULL;
 	struct sshcomp *comp = NULL;
 	int r, block_size;
-
+	/* for the threaded mac */
+	struct sshbuf *mac_sshbuf = NULL; 
+	pthread_t mac_thread[1];
+	struct mac_thread_job *macjob = NULL;
+	void *err;
+	
 	if (state->newkeys[MODE_OUT] != NULL) {
 		enc  = &state->newkeys[MODE_OUT]->enc;
 		mac  = &state->newkeys[MODE_OUT]->mac;
@@ -1205,9 +1232,9 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	DBG(debug("send: len %d (includes padlen %d, aadlen %d)",
 	    len, padlen, aadlen));
 
-	/* is it possible to do the mac calculation out of sequence on 
+	/* is it possible to do the mac calculation on 
 	 * a different thread? We'd need to copy some data over and 
-	 * put in a conditional to so the append process happens in the
+	 * put in a conditional so the append process happens in the
 	 * right sequence. -cjr 3/1/2022
 	 * note to self: The mac is computed on the unencrypted data and then
 	 * that is ciphered so the mac *must* be computed before the encryption 
@@ -1215,15 +1242,38 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	 * packet payload. So we'd need to copy the data (not the pointer) to a new
 	 * variable. First test might be to just do the copy and see what impact it has 
 	 * on performance. The big question is going to be how much time do we spend in
-	 * mac_computer versus cipher_crypt. 
+	 * mac_compute versus cipher_crypt. 
+	 * Note: etm mode macs are computed after the encryption. I'll need another method
+	 * to handle that if it's even actually feasible 03-02-2022
 	 */
 
 	/* compute MAC over seqnr and packet(length fields, payload, padding) */
 	if (mac && mac->enabled && !mac->etm) {
-		if ((r = mac_compute(mac, state->p_send.seqnr,
-		    sshbuf_ptr(state->outgoing_packet), len,
-		    macbuf, sizeof(macbuf))) != 0)
-			goto out;
+		if (state->after_authentication == 1) {
+			/* copy the working ssh buffer over to a new one for the thread
+			 * if we don't do that then the buffer state will change while
+			 * it is being encrypted */
+			if ((mac_sshbuf = sshbuf_fromb(state->outgoing_packet)) == NULL) {
+				r = SSH_ERR_ALLOC_FAIL;
+				goto out;
+			}
+			/* assemble the data for the job */
+			macjob->mac = mac;
+			macjob->seqnr = state->p_send.seqnr;
+			macjob->data = sshbuf_ptr(mac_sshbuf);
+			macjob->len = len;
+			macjob->macbuf_ptr = macbuf;
+			macjob->mac_size = sizeof(macbuf);
+			
+			fprintf(stderr, "creating thread\n");
+			/* create the thread */
+			pthread_create(&mac_thread[0], NULL, ssh_mac_compute_thread, (void *)macjob);
+		} else {
+			if ((r = mac_compute(mac, state->p_send.seqnr,
+					     sshbuf_ptr(mac_sshbuf), len,
+					     macbuf, sizeof(macbuf))) != 0)
+				goto out;
+		}
 		DBG(debug("done calc MAC out #%d", state->p_send.seqnr));
 	}
 	/* encrypt packet and append to output buffer. */
@@ -1235,12 +1285,16 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	    len - aadlen, aadlen, authlen)) != 0)
 		goto out;
 
-	/* if the mac is done on it's own thread we need to signal to this 
-	 * thread that the mac is computed and spinlock if it's not
-	 */
-
+		
 	/* append unencrypted MAC */
 	if (mac && mac->enabled) {
+		if (state->after_authentication == 1) {
+			/* we join the thread here */
+			pthread_join(mac_thread[0], &err);
+			/* free the temporary buffer */
+			sshbuf_free(mac_sshbuf);
+		}
+
 		if (mac->etm) {
 			/* EtM: compute mac over aadlen + cipher text */
 			if ((r = mac_compute(mac, state->p_send.seqnr,
