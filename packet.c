@@ -1245,11 +1245,12 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	 * mac_compute versus cipher_crypt. 
 	 * Note: etm mode macs are computed after the encryption. I'll need another method
 	 * to handle that if it's even actually feasible 03-02-2022
+	 * I thought this code was working but it's not. Turns out the default cipher
+	 * is an etm. 
 	 */
 
 	/* compute MAC over seqnr and packet(length fields, payload, padding) */
 	if (mac && mac->enabled && !mac->etm) {
-		if (state->after_authentication == 1) {
 			/* copy the working ssh buffer over to a new one for the thread
 			 * if we don't do that then the buffer state will change while
 			 * it is being encrypted */
@@ -1265,15 +1266,13 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 			macjob->macbuf_ptr = macbuf;
 			macjob->mac_size = sizeof(macbuf);
 			
-			fprintf(stderr, "creating thread\n");
+			debug("created thread");
 			/* create the thread */
 			pthread_create(&mac_thread[0], NULL, ssh_mac_compute_thread, (void *)macjob);
-		} else {
-			if ((r = mac_compute(mac, state->p_send.seqnr,
-					     sshbuf_ptr(mac_sshbuf), len,
-					     macbuf, sizeof(macbuf))) != 0)
-				goto out;
-		}
+			//if ((r = mac_compute(mac, state->p_send.seqnr,
+			//		     sshbuf_ptr(mac_sshbuf), len,
+			//		     macbuf, sizeof(macbuf))) != 0)
+			//	goto out;
 		DBG(debug("done calc MAC out #%d", state->p_send.seqnr));
 	}
 	/* encrypt packet and append to output buffer. */
@@ -1288,14 +1287,14 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 		
 	/* append unencrypted MAC */
 	if (mac && mac->enabled) {
-		if (state->after_authentication == 1) {
-			/* we join the thread here */
-			pthread_join(mac_thread[0], &err);
-			/* free the temporary buffer */
-			sshbuf_free(mac_sshbuf);
-		}
-
+		debug("thread");
+		/* we join the thread here */
+		pthread_join(mac_thread[0], &err);
+		/* free the temporary buffer */
+		sshbuf_free(mac_sshbuf);
+		
 		if (mac->etm) {
+			debug ("etm");
 			/* EtM: compute mac over aadlen + cipher text */
 			if ((r = mac_compute(mac, state->p_send.seqnr,
 			    cp, len, macbuf, sizeof(macbuf))) != 0)
