@@ -1251,6 +1251,7 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	/* compute MAC over seqnr and packet(length fields, payload, padding) */
 	if (mac && mac->enabled && !mac->etm) {
 		if (state->after_authentication == 1) {
+			debug("ENTERING THREAD FUNCTION");
 			/* copy the working ssh buffer over to a new one for the thread
 			 * if we don't do that then the buffer state will change while
 			 * it is being encrypted */
@@ -1270,13 +1271,17 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 			/* create the thread */
 			pthread_create(&mac_thread[0], NULL, ssh_mac_compute_thread, &macjob);
 		} else {
+			debug("I AM STILL PREAUTH");
 			if ((r = mac_compute(mac, state->p_send.seqnr,
-					     sshbuf_ptr(mac_sshbuf), len,
-					     macbuf, sizeof(macbuf))) != 0)
+					     sshbuf_ptr(state->outgoing_packet), len,
+					     macbuf, sizeof(macbuf))) != 0) {
+				debug("OH NO!");
 				goto out;
+			}
 		}
 		DBG(debug("done calc MAC out #%d", state->p_send.seqnr));
 	}
+	debug("ENCRYPTING PACKET!");
 	/* encrypt packet and append to output buffer. */
 	if ((r = sshbuf_reserve(state->output,
 	    sshbuf_len(state->outgoing_packet) + authlen, &cp)) != 0)
@@ -1288,6 +1293,7 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 
 		
 	/* append unencrypted MAC */
+	debug("APPENDING MAC");
 	if (mac && mac->enabled) {
 		if (mac->etm) {
 			/* EtM: compute mac over aadlen + cipher text */
@@ -1297,6 +1303,7 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 			DBG(debug("done calc MAC(EtM) out #%d",
 			    state->p_send.seqnr));
 		} else {
+			debug("NOT ETM");
 			if (state->after_authentication == 1) {
 				debug("thread");
 				/* we join the thread here */
@@ -1305,8 +1312,10 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 				sshbuf_free(mac_sshbuf);
 			}
 		}
-		if ((r = sshbuf_put(state->output, macbuf, mac->mac_len)) != 0)
+		if ((r = sshbuf_put(state->output, macbuf, mac->mac_len)) != 0) {
+			debug("WHOOPS!");
 			goto out;
+		}
 	}
 #ifdef PACKET_DEBUG
 	fprintf(stderr, "encrypted: ");
