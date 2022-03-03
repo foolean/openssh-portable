@@ -1137,7 +1137,7 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	/* for the threaded mac */
 	struct sshbuf *mac_sshbuf = NULL; 
 	pthread_t mac_thread[1];
-	struct mac_thread_job *macjob = NULL;
+	struct mac_thread_job macjob;
 	void *err;
 	
 	if (state->newkeys[MODE_OUT] != NULL) {
@@ -1245,7 +1245,7 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	 * mac_compute versus cipher_crypt. 
 	 * Note: etm mode macs are computed after the encryption. I'll need another method
 	 * to handle that if it's even actually feasible 03-02-2022
-	 * I thought this code was working but it's not. Turns out the default cipher
+	 * I thought this code was working but it's not. Turns out the default mac
 	 * is an etm. 
 	 */
 
@@ -1259,16 +1259,16 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 				goto out;
 			}
 			/* assemble the data for the job */
-			macjob->mac = mac;
-			macjob->seqnr = state->p_send.seqnr;
-			macjob->data = sshbuf_ptr(mac_sshbuf);
-			macjob->len = len;
-			macjob->macbuf_ptr = macbuf;
-			macjob->mac_size = sizeof(macbuf);
+			macjob.mac = mac; /* this assignment is making a segfault figure this out */
+			macjob.seqnr = state->p_send.seqnr;
+			macjob.data = sshbuf_ptr(mac_sshbuf);
+			macjob.len = len;
+			macjob.macbuf_ptr = macbuf;
+			macjob.mac_size = sizeof(macbuf);
 			
 			debug("created thread");
 			/* create the thread */
-			pthread_create(&mac_thread[0], NULL, ssh_mac_compute_thread, (void *)macjob);
+			pthread_create(&mac_thread[0], NULL, ssh_mac_compute_thread, &macjob);
 			//if ((r = mac_compute(mac, state->p_send.seqnr,
 			//		     sshbuf_ptr(mac_sshbuf), len,
 			//		     macbuf, sizeof(macbuf))) != 0)
@@ -1287,12 +1287,6 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 		
 	/* append unencrypted MAC */
 	if (mac && mac->enabled) {
-		debug("thread");
-		/* we join the thread here */
-		pthread_join(mac_thread[0], &err);
-		/* free the temporary buffer */
-		sshbuf_free(mac_sshbuf);
-		
 		if (mac->etm) {
 			debug ("etm");
 			/* EtM: compute mac over aadlen + cipher text */
@@ -1301,6 +1295,12 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 				goto out;
 			DBG(debug("done calc MAC(EtM) out #%d",
 			    state->p_send.seqnr));
+		} else {
+			debug("thread");
+			/* we join the thread here */
+			pthread_join(mac_thread[0], &err);
+			/* free the temporary buffer */
+			sshbuf_free(mac_sshbuf);
 		}
 		if ((r = sshbuf_put(state->output, macbuf, mac->mac_len)) != 0)
 			goto out;
