@@ -63,7 +63,7 @@
 #endif
 #include <signal.h>
 #include <time.h>
-#include <pthread.h>
+//#include <pthread.h>
 
 /*
  * Explicitly include OpenSSL before zlib as some versions of OpenSSL have
@@ -97,6 +97,7 @@
 #include "packet.h"
 #include "ssherr.h"
 #include "sshbuf.h"
+#include "pthread_pool.h"
 
 #ifdef PACKET_DEBUG
 #define DBG(x) x
@@ -226,6 +227,18 @@ struct session_state {
 
 	TAILQ_HEAD(, packet) outgoing;
 };
+
+struct mac_thread_job {
+	struct sshmac   *mac;           /* pointer to mac type */
+	u_int32_t       seqnr;          /* sequence number */
+	const u_char    *data;          /* pointer to packet data */
+	int             len;            /* length of data */
+	u_char          *macbuf_ptr;    /* pointer to mac buffer */
+	size_t          mac_size;       /* size of mac buffer */
+};
+
+void *thpool = NULL;
+struct mac_thread_job macjob;
 
 struct ssh *
 ssh_alloc_session_state(void)
@@ -1098,26 +1111,15 @@ ssh_packet_log_type(u_char type)
 	}
 }
 
-struct mac_thread_job {
-	struct sshmac   *mac;           /* pointer to mac type */
-	u_int32_t       seqnr;          /* sequence number */
-	const u_char    *data;          /* pointer to packet data */
-	int             len;            /* length of data */
-	u_char          *macbuf_ptr;    /* pointer to mac buffer */
-	size_t          mac_size;       /* size of mac buffer */
-};
-
-
 void *
 ssh_mac_compute_thread (void *macjob)
 {
 	int r;
-	struct mac_thread_job *job;
-	
-	job = (struct mac_thread_job *) macjob;
-	r = mac_compute(job->mac, job->seqnr, job->data, (int)job->len, job->macbuf_ptr, (int)job->mac_size);
+	struct mac_thread_job *job = (struct mac_thread_job *) macjob;
+
+	mac_compute(job->mac, job->seqnr, job->data, (int)job->len, job->macbuf_ptr, (int)job->mac_size);
 	DBG(debug("done calc MAC out #%d", job.seqnr));
-	pthread_exit(&r);
+	return NULL;
 }
 /*
  * Finalize packet in SSH2 format (compress, mac, encrypt, enqueue)
@@ -1137,7 +1139,6 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	/* for the threaded mac */
 	struct sshbuf *mac_sshbuf = NULL; 
 	pthread_t mac_thread[1];
-	struct mac_thread_job macjob;
 	void *err;
 	
 	if (state->newkeys[MODE_OUT] != NULL) {
@@ -1251,7 +1252,9 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	/* compute MAC over seqnr and packet(length fields, payload, padding) */
 	if (mac && mac->enabled && !mac->etm) {
 		if (state->after_authentication == 1) {
-			debug("ENTERING THREAD FUNCTION");
+			if (thpool == NULL) {
+				thpool = pool_start(ssh_mac_compute_thread, 2);
+			}
 			/* copy the working ssh buffer over to a new one for the thread
 			 * if we don't do that then the buffer state will change while
 			 * it is being encrypted */
@@ -1269,13 +1272,12 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 			
 			debug("created thread");
 			/* create the thread */
-			pthread_create(&mac_thread[0], NULL, ssh_mac_compute_thread, &macjob);
+			//pthread_create(&mac_thread[0], NULL, ssh_mac_compute_thread, &macjob);
+			pool_enqueue(thpool, &macjob);
 		} else {
-			debug("I AM STILL PREAUTH");
 			if ((r = mac_compute(mac, state->p_send.seqnr,
 					     sshbuf_ptr(state->outgoing_packet), len,
 					     macbuf, sizeof(macbuf))) != 0) {
-				debug("OH NO!");
 				goto out;
 			}
 		}
@@ -1303,17 +1305,16 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 			DBG(debug("done calc MAC(EtM) out #%d",
 			    state->p_send.seqnr));
 		} else {
-			debug("NOT ETM");
 			if (state->after_authentication == 1) {
 				debug("thread");
 				/* we join the thread here */
-				pthread_join(mac_thread[0], &err);
+				//pthread_join(mac_thread[0], &err);
+				while(pool_count(thpool)) {};
 				/* free the temporary buffer */
 				sshbuf_free(mac_sshbuf);
 			}
 		}
 		if ((r = sshbuf_put(state->output, macbuf, mac->mac_len)) != 0) {
-			debug("WHOOPS!");
 			goto out;
 		}
 	}
