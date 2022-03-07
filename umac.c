@@ -61,7 +61,7 @@
 # error UMAC_OUTPUT_LEN must be defined to 4, 8, 12 or 16
 #endif
 
-/* #define FORCE_C_ONLY        1  ANSI C and 64-bit integers req'd        */
+#define FORCE_C_ONLY        1  /* ANSI C and 64-bit integers req'd        */
 /* #define AES_IMPLEMENTAION   1  1 = OpenSSL, 2 = Barreto, 3 = Gladman   */
 /* #define SSE2                0  Is SSE2 is available?                   */
 /* #define RUN_TESTS           0  Run basic correctness/speed tests       */
@@ -100,6 +100,12 @@ typedef unsigned int	UWORD;  /* Register */
 
 #define UMAC_KEY_LEN           16  /* UMAC takes 16 bytes of external key */
 
+/* GNU gcc and Microsoft Visual C++ (and copycats) on IA-32 are supported
+ * with some assembly
+ */
+#define GCC_X86         (__GNUC__ && __x86_64__)      /* GCC on IA-32       */
+#define MSC_X86         (_M_IX86)                   /* Microsoft on IA-32 */
+
 /* Message "words" are read from memory in an endian-specific manner.     */
 /* For this implementation to behave correctly, __LITTLE_ENDIAN__ must    */
 /* be set true if the host computer is little-endian.                     */
@@ -116,6 +122,10 @@ typedef unsigned int	UWORD;  /* Register */
 /* ---------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------- */
 
+#if (MSC_X86)
+#pragma warning(disable: 4731)  /* Turn off "ebp manipulation" warning    */
+#pragma warning(disable: 4311)  /* Turn off "pointer trunc" warning       */
+#endif
 
 /* ---------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------- */
@@ -134,16 +144,77 @@ typedef unsigned int	UWORD;  /* Register */
 /* --- Endian Conversion --- Forcing assembly on some platforms           */
 /* ---------------------------------------------------------------------- */
 
-#if (__LITTLE_ENDIAN__)
-#define LOAD_UINT32_REVERSED(p)		get_u32(p)
-#define STORE_UINT32_REVERSED(p,v)	put_u32(p,v)
+/* Lots of endian reversals happen in UMAC. PowerPC and Intel Architechture
+ * both support efficient endian conversion, but compilers seem unable to
+ * automatically utilize the efficient assembly opcodes. The architechture-
+ * specific versions utilize them.
+ */
+               
+#if (MSC_X86 && ! FORCE_C_ONLY)
+
+static UINT32 LOAD_UINT32_REVERSED(void *p)
+{
+    __asm {
+        mov eax, p
+        mov eax, [eax]
+        bswap eax
+    }
+}
+
+static void STORE_UINT32_REVERSED(void *p, UINT32 x)
+{
+    __asm {
+        mov eax,x
+        bswap eax
+        mov ecx, p
+        mov [ecx], eax
+    }
+}
+
+#elif (GCC_X86)
+
+static UINT32 LOAD_UINT32_REVERSED(void *ptr)
+{
+    UINT32 temp;
+    asm volatile("bswap %0" : "=r" (temp) : "0" (*(UINT32 *)ptr)); 
+    return temp;
+}
+
+static void STORE_UINT32_REVERSED(void *ptr, UINT32 x)
+{
+    asm volatile("bswap %0" : "=r" (*(UINT32 *)ptr) : "0" (x)); 
+}
+
 #else
-#define LOAD_UINT32_REVERSED(p)		get_u32_le(p)
-#define STORE_UINT32_REVERSED(p,v)	put_u32_le(p,v)
+
+static UINT32 LOAD_UINT32_REVERSED(void *ptr)
+{
+    UINT32 temp = *(UINT32 *)ptr;
+    temp = (temp >> 24) | ((temp & 0x00FF0000) >> 8 )
+         | ((temp & 0x0000FF00) << 8 ) | (temp << 24);
+    return (UINT32)temp;
+}
+               
+static void STORE_UINT32_REVERSED(void *ptr, UINT32 x)
+{
+    UINT32 i = (UINT32)x;
+    *(UINT32 *)ptr = (i >> 24) | ((i & 0x00FF0000) >> 8 )
+                   | ((i & 0x0000FF00) << 8 ) | (i << 24);
+}
+
 #endif
 
-#define LOAD_UINT32_LITTLE(p)		(get_u32_le(p))
-#define STORE_UINT32_BIG(p,v)		put_u32(p, v)
+/* The following definitions use the above reversal-primitives to do the right
+ * thing on endian specific load and stores.
+ */
+
+#if (__LITTLE_ENDIAN__)
+#define LOAD_UINT32_LITTLE(ptr)     (*(UINT32 *)(ptr))
+#define STORE_UINT32_BIG(ptr,x)     STORE_UINT32_REVERSED(ptr,x)
+#else
+#define LOAD_UINT32_LITTLE(ptr)     LOAD_UINT32_REVERSED(ptr)
+#define STORE_UINT32_BIG(ptr,x)     (*(UINT32 *)(ptr) = (UINT32)(x))
+#endif
 
 /* ---------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------- */
@@ -326,6 +397,472 @@ typedef struct {
 } nh_ctx;
 
 
+
+/* ---------------------------------------------------------------------- */
+#if ( ! FORCE_C_ONLY && ( GCC_X86 || MSC_X86 ) )
+/* ---------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------- */
+#if ( SSE2 )
+/* ---------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------- */
+#if ( MSC_X86 )
+/* ---------------------------------------------------------------------- */
+
+/* This macro uses movdqa which requires 16-byte aligned data and key. */
+#define NH_STEP_1(n) \
+    movdqa xmm2, n[ecx] \
+    __asm movdqa xmm0, n[eax] \
+    __asm movdqa xmm3, n+16[ecx] \
+    __asm movdqa xmm1, n+16[eax] \
+    __asm paddd xmm2, xmm0 \
+    __asm paddd xmm3, xmm1 \
+    __asm movdqa xmm5, xmm2 \
+    __asm pmuludq xmm2, xmm3 \
+    __asm psrldq xmm3, 4 \
+    __asm paddq xmm6, xmm2 \
+    __asm psrldq xmm5, 4 \
+    __asm pmuludq xmm3, xmm5 \
+    __asm paddq xmm6, xmm3
+
+static void nh_aux_1(void *kp, void *dp, void *hp, UINT32 dlen)
+{
+    __asm{
+        mov edx, dlen
+        mov ebx, hp
+        mov ecx, kp
+        mov eax, dp
+        sub edx, 128
+        movq xmm6, mmword ptr [ebx]
+        jb label2
+label1:
+        NH_STEP_1(0)
+        NH_STEP_1(32)
+        NH_STEP_1(64)
+        NH_STEP_1(96)
+        add eax, 128
+        add ecx, 128
+        sub edx, 128
+        jnb label1
+label2:
+        add edx,128
+        je label4
+label3:
+        NH_STEP_1(0)
+        add eax, 32
+        add ecx, 32
+        sub edx, 32
+        jne label3
+label4:
+        movdqa xmm0,xmm6
+        psrldq xmm0, 8
+        paddq xmm6, xmm0
+        movq mmword ptr [ebx], xmm6
+    }
+}
+
+
+/* This macro uses movdqa which requires 16-byte aligned data and key. */
+#define NH_STEP_2(n) \
+    movdqa xmm0, n[eax] \
+    __asm movdqa xmm3, n+16[ecx] \
+    __asm movdqa xmm1, n+16[eax] \
+    __asm paddd xmm2, xmm0 \
+    __asm movdqa xmm4, xmm3 \
+    __asm paddd xmm3, xmm1 \
+    __asm movdqa xmm5, xmm2 \
+    __asm pmuludq xmm2, xmm3 \
+    __asm psrldq xmm3, 4 \
+    __asm paddq xmm6, xmm2 \
+    __asm movdqa xmm2, n+32[ecx] \
+    __asm psrldq xmm5, 4 \
+    __asm pmuludq xmm3, xmm5 \
+    __asm paddd xmm1, xmm2 \
+    __asm paddd xmm4, xmm0 \
+    __asm paddq xmm6, xmm3 \
+    __asm movdqa xmm3, xmm4 \
+    __asm pmuludq xmm4, xmm1 \
+    __asm psrldq xmm1, 4 \
+    __asm psrldq xmm3, 4 \
+    __asm pmuludq xmm3, xmm1 \
+    __asm paddq xmm7, xmm4 \
+    __asm paddq xmm7, xmm3
+
+
+static void nh_aux_2(void *kp, void *dp, void *hp, UINT32 dlen)
+/* Perform 2 streams simultaneously */
+{
+    __asm{
+        mov edx, dlen
+        mov ebx, hp
+        mov ecx, kp
+        mov eax, dp
+        sub edx, 128
+        movq xmm6, mmword ptr [ebx]
+        movq xmm7, mmword ptr 8[ebx]
+        movdqa xmm2, [ecx]
+        jb label2
+label1:
+        NH_STEP_2(0)
+        NH_STEP_2(32)
+        NH_STEP_2(64)
+        NH_STEP_2(96)
+        add eax, 128
+        add ecx, 128
+        sub edx, 128
+        jnb label1
+label2:
+        add edx,128
+        je label4
+label3:
+        NH_STEP_2(0)
+        add eax, 32
+        add ecx, 32
+        sub edx, 32
+        jne label3
+label4:
+        movdqa xmm0,xmm6
+        movdqa xmm1,xmm7
+        psrldq xmm0, 8
+        psrldq xmm1, 8
+        paddq xmm6, xmm0
+        paddq xmm7, xmm1
+        movq mmword ptr [ebx], xmm6
+        movq mmword ptr 8[ebx], xmm7
+    }
+}
+
+/* ---------------------------------------------------------------------- */
+#elif (GCC_X86)
+/* ---------------------------------------------------------------------- */
+
+#define NH_STEP_1(n) \
+    "movdqa "#n"(%0), %%xmm2\n\t" \
+    "movdqa "#n"(%1), %%xmm0\n\t" \
+    "movdqa "#n"+16(%0), %%xmm3\n\t" \
+    "movdqa "#n"+16(%1), %%xmm1\n\t" \
+    "paddd %%xmm0, %%xmm2\n\t" \
+    "paddd %%xmm1, %%xmm3\n\t" \
+    "movdqa %%xmm2, %%xmm5\n\t" \
+    "pmuludq %%xmm3, %%xmm2\n\t" \
+    "psrldq $4, %%xmm3\n\t" \
+    "paddq %%xmm2, %%xmm6\n\t" \
+    "psrldq $4, %%xmm5\n\t" \
+    "pmuludq %%xmm5, %%xmm3\n\t" \
+    "paddq %%xmm3, %%xmm6\n\t"
+
+static void nh_aux_1(void *kp, void *dp, void *hp, UINT32 dlen)
+{
+  UINT32 d1,d2,d3;
+  asm volatile (
+        "sub $128, %2\n\t"
+        "movq (%3), %%xmm6\n\t"
+        "jb 2f\n\t"
+		".align 4,0x90\n"
+	"1:\n\t"
+        NH_STEP_1(0)
+        NH_STEP_1(32)
+        NH_STEP_1(64)
+        NH_STEP_1(96)
+        "add $128, %1\n\t"
+        "add $128, %0\n\t"
+        "sub $128, %2\n\t"
+        "jnb 1b\n\t"
+    	".align 4,0x90\n"
+    "2:\n\t"
+        "add $128, %2\n\t"
+        "je 4f\n\t"
+    	".align 4,0x90\n"
+    "3:\n\t"
+        NH_STEP_1(0)
+        "add $32, %1\n\t"
+        "add $32, %0\n\t"
+        "sub $32, %2\n\t"
+        "jne 3b\n\t"
+    	".align 4,0x90\n"
+    "4:\n\t"
+        "movdqa %%xmm6, %%xmm0\n\t"
+        "psrldq $8, %%xmm0\n\t"
+        "paddq %%xmm0, %%xmm6\n\t"
+        "movq %%xmm6, (%3)"
+    : "+r" (kp), "+r" (dp), "+r" (dlen) 
+    : "r" (hp)
+    : "memory");
+}
+
+#define NH_STEP_2(n) \
+    "movdqa "#n"(%1), %%xmm0\n\t" \
+    "movdqa "#n"+16(%0), %%xmm3\n\t" \
+    "movdqa "#n"+16(%1), %%xmm1\n\t" \
+    "paddd %%xmm0, %%xmm2\n\t" \
+    "movdqa %%xmm3, %%xmm4\n\t" \
+    "paddd %%xmm1, %%xmm3\n\t" \
+    "movdqa %%xmm2, %%xmm5\n\t" \
+    "pmuludq %%xmm3, %%xmm2\n\t" \
+    "psrldq $4, %%xmm3\n\t" \
+    "paddq %%xmm2, %%xmm6\n\t" \
+    "movdqa "#n"+32(%0), %%xmm2\n\t" \
+    "psrldq $4, %%xmm5\n\t" \
+    "pmuludq %%xmm5, %%xmm3\n\t" \
+    "paddd %%xmm2, %%xmm1\n\t" \
+    "paddd %%xmm0, %%xmm4\n\t" \
+    "paddq %%xmm3, %%xmm6\n\t" \
+    "movdqa %%xmm4, %%xmm3\n\t" \
+    "pmuludq %%xmm1, %%xmm4\n\t" \
+    "psrldq $4, %%xmm1\n\t" \
+    "psrldq $4, %%xmm3\n\t" \
+    "pmuludq %%xmm1, %%xmm3\n\t" \
+    "paddq %%xmm4, %%xmm7\n\t" \
+    "paddq %%xmm3, %%xmm7\n\t"
+
+
+static void nh_aux_2(void *kp, void *dp, void *hp, UINT32 dlen)
+{
+  UINT32 d1,d2,d3;
+  asm volatile (
+        "sub $128, %2\n\t"
+        "movq (%3), %%xmm6\n\t"
+        "movq 8(%3), %%xmm7\n\t"
+        "movdqa (%0), %%xmm2\n\t"
+        "jb 2f\n\t"
+		".align 4,0x90\n"
+	"1:\n\t"
+        NH_STEP_2(0)
+        NH_STEP_2(32)
+        NH_STEP_2(64)
+        NH_STEP_2(96)
+        "add $128, %1\n\t"
+        "add $128, %0\n\t"
+        "sub $128, %2\n\t"
+        "jnb 1b\n\t"
+    	".align 4,0x90\n"
+    "2:\n\t"
+        "add $128, %2\n\t"
+        "je 4f\n\t"
+    	".align 4,0x90\n"
+    "3:\n\t"
+        NH_STEP_2(0)
+        "add $32, %1\n\t"
+        "add $32, %0\n\t"
+        "sub $32, %2\n\t"
+        "jne 3b\n\t"
+    	".align 4,0x90\n"
+    "4:\n\t"
+        "movdqa %%xmm6, %%xmm0\n\t"
+        "movdqa %%xmm7, %%xmm1\n\t"
+        "psrldq $8, %%xmm0\n\t"
+        "psrldq $8, %%xmm1\n\t"
+        "paddq %%xmm0, %%xmm6\n\t"
+        "paddq %%xmm1, %%xmm7\n\t"
+        "movq %%xmm6, (%3)\n\t"
+        "movq %%xmm7, 8(%3)"
+    : "+r" (kp), "+r" (dp), "+r" (dlen) 
+    : "r" (hp)
+    : "memory");
+}
+
+/* ---------------------------------------------------------------------- */
+#endif /*  MSC GCC Sections for SSE2, not C */
+/* ---------------------------------------------------------------------- */
+
+static void nh_aux(void *kp, void *dp, void *hp, UINT32 dlen)
+/* NH hashing primitive. 128 bits are written at hp by performing two     */
+/* passes over the data with the second key being the toeplitz shift of   */
+/* the first.                                                             */
+{
+#if (UMAC_OUTPUT_LEN == 4)
+    nh_aux_1(kp,dp,hp,dlen);
+#elif (UMAC_OUTPUT_LEN == 8)
+    nh_aux_2(kp,dp,hp,dlen);
+#elif (UMAC_OUTPUT_LEN == 12)
+    nh_aux_2(kp,dp,hp,dlen);
+    nh_aux_1((UINT8 *)kp+32,dp,(UINT8 *)hp+16,dlen);
+#elif (UMAC_OUTPUT_LEN == 16)
+    nh_aux_2(kp,dp,hp,dlen);
+    nh_aux_2((UINT8 *)kp+32,dp,(UINT8 *)hp+16,dlen);
+#endif
+}
+
+
+
+/* ---------------------------------------------------------------------- */
+#else /* not SSE2 */
+/* ---------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------- */
+#if ( MSC_X86 )
+/* ---------------------------------------------------------------------- */
+
+#define NH_STEP(n) \
+    mov eax,n[ebx]   \
+    __asm mov edx,n+16[ebx] \
+    __asm add eax,n[ecx]   \
+    __asm add edx,n+16[ecx] \
+    __asm mul edx         \
+    __asm add esi,eax      \
+    __asm adc edi,edx
+
+
+static void nh_aux_1(void *kp, void *dp, void *hp, UINT32 dlen)
+{
+  __asm{
+      push ebp
+      mov ecx,kp
+      mov ebx,dp
+      mov eax,hp
+      mov ebp,dlen
+      sub ebp,128
+      mov esi,[eax]
+      mov edi,4[eax]
+      jb label2     /* if 0 */
+label1:
+      NH_STEP(0)
+      NH_STEP(4)
+      NH_STEP(8)
+      NH_STEP(12)
+      NH_STEP(32)
+      NH_STEP(36)
+      NH_STEP(40)
+      NH_STEP(44)
+      NH_STEP(64)
+      NH_STEP(68)
+      NH_STEP(72)
+      NH_STEP(76)
+      NH_STEP(96)
+      NH_STEP(100)
+      NH_STEP(104)
+      NH_STEP(108)
+      add ecx,128
+      add ebx,128
+      sub ebp,128
+      jnb label1
+label2:
+      add ebp,128
+      je label4
+label3:
+      NH_STEP(0)
+      NH_STEP(4)
+      NH_STEP(8)
+      NH_STEP(12)
+      add ecx,32
+      add ebx,32
+      sub ebp,32
+      jne label3
+label4:
+      pop ebp
+      mov eax,hp
+      mov [eax],esi
+      mov 4[eax],edi
+   }
+}
+
+/* ---------------------------------------------------------------------- */
+#elif ( GCC_X86 )
+/* ---------------------------------------------------------------------- */
+
+#define NH_STEP(n) \
+    "movl "#n"(%%ebx),%%eax\n\t" \
+    "movl "#n"+16(%%ebx),%%edx\n\t" \
+    "addl "#n"(%%ecx),%%eax\n\t" \
+    "addl "#n"+16(%%ecx),%%edx\n\t" \
+    "mull %%edx\n\t" \
+    "addl %%eax,%%esi\n\t" \
+    "adcl %%edx,%%edi\n\t"
+    
+static void nh_aux_1(void *kp, void *dp, void *hp, UINT32 dlen)
+/* NH hashing primitive. Previous (partial) hash result is loaded and     */
+/* then stored via hp pointer. The length of the data pointed at by dp is */
+/* guaranteed to be divisible by HASH_BUF_BYTES (64), which means we can   */
+/* optimize by unrolling the loop. 64 bits are written at hp.             */
+{
+  UINT32 *p = (UINT32 *)hp;
+  
+  asm volatile (
+    "\n\t"
+    "pushl %%eax\n\t"
+    "pushl %%ebp\n\t"
+    "subl $128,%%eax\n\t"
+    "movl %%eax,%%ebp\n\t"
+    "jb 2f\n\t"
+    ".align 4,0x90\n"
+    "1:\n\t"
+    
+    NH_STEP(0)
+    NH_STEP(4)
+    NH_STEP(8)
+    NH_STEP(12)
+    NH_STEP(32)
+    NH_STEP(36)
+    NH_STEP(40)
+    NH_STEP(44)
+    NH_STEP(64)
+    NH_STEP(68)
+    NH_STEP(72)
+    NH_STEP(76)
+    NH_STEP(96)
+    NH_STEP(100)
+    NH_STEP(104)
+    NH_STEP(108)
+
+    "addl $128,%%ecx\n\t"
+    "addl $128,%%ebx\n\t"
+    "subl $128,%%ebp\n\t"
+    "jnb 1b\n\t"
+    ".align 4\n"
+    "2:\n\t"
+    "addl $128,%%ebp\n\t"
+    "je 4f\n\t"
+    ".align 4,0x90\n"
+    "3:\n\t"
+    
+    NH_STEP(0)
+    NH_STEP(4)
+    NH_STEP(8)
+    NH_STEP(12)
+
+    "addl $32,%%ecx\n\t"
+    "addl $32,%%ebx\n\t"
+    "subl $32,%%ebp\n\t"
+    "jne 3b\n\t"
+    ".align 4\n"
+    "4:\n\t"
+    "popl %%ebp\n\t"
+    "popl %%eax"
+    : "+S" (p[0]), "+D" (p[1]), "+c" (kp), "+b" (dp)
+    : "a" (dlen)
+    : "edx", "memory");
+}
+
+/* ---------------------------------------------------------------------- */
+#endif /* GCC or MSC, not SSE2, not C */
+/* ---------------------------------------------------------------------- */
+
+static void nh_aux(void *kp, void *dp, void *hp, UINT32 dlen)
+/* NH hashing primitive. 128 bits are written at hp by performing two     */
+/* passes over the data with the second key being the toeplitz shift of   */
+/* the first.                                                             */
+{
+    nh_aux_1(kp,dp,hp,dlen);
+#if (UMAC_OUTPUT_LEN >= 8)
+    nh_aux_1((UINT8 *)kp+16,dp,(UINT8 *)hp+8,dlen);
+#endif
+#if (UMAC_OUTPUT_LEN >= 12)
+    nh_aux_1((UINT8 *)kp+32,dp,(UINT8 *)hp+16,dlen);
+#endif
+#if (UMAC_OUTPUT_LEN == 16)
+    nh_aux_1((UINT8 *)kp+48,dp,(UINT8 *)hp+24,dlen);
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+#endif /* SSE2 */
+/* ---------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------- */
+#else /* FORCE_C_ONLY */
+/* ---------------------------------------------------------------------- */
+
 #if (UMAC_OUTPUT_LEN == 4)
 
 static void nh_aux(void *kp, const void *dp, void *hp, UINT32 dlen)
@@ -384,22 +921,22 @@ static void nh_aux(void *kp, const void *dp, void *hp, UINT32 dlen)
     d2 = LOAD_UINT32_LITTLE(d+2); d3 = LOAD_UINT32_LITTLE(d+3);
     d4 = LOAD_UINT32_LITTLE(d+4); d5 = LOAD_UINT32_LITTLE(d+5);
     d6 = LOAD_UINT32_LITTLE(d+6); d7 = LOAD_UINT32_LITTLE(d+7);
-    k4 = *(k+4); k5 = *(k+5); k6 = *(k+6); k7 = *(k+7);
-    k8 = *(k+8); k9 = *(k+9); k10 = *(k+10); k11 = *(k+11);
+    //k4 = *(k+4); k5 = *(k+5); k6 = *(k+6); k7 = *(k+7);
+    //k8 = *(k+8); k9 = *(k+9); k10 = *(k+10); k11 = *(k+11);
 
-    h1 += MUL64((k0 + d0), (k4 + d4));
-    h2 += MUL64((k4 + d0), (k8 + d4));
+    h1 += MUL64((k0 + d0), (*(k+4) + d4));
+    h2 += MUL64((*(k+4) + d0), (*(k+8) + d4));
 
-    h1 += MUL64((k1 + d1), (k5 + d5));
-    h2 += MUL64((k5 + d1), (k9 + d5));
+    h1 += MUL64((k1 + d1), (*(k+5) + d5));
+    h2 += MUL64((*(k+5) + d1), (*(k+9) + d5));
 
-    h1 += MUL64((k2 + d2), (k6 + d6));
-    h2 += MUL64((k6 + d2), (k10 + d6));
+    h1 += MUL64((k2 + d2), (*(k+6) + d6));
+    h2 += MUL64((*(k+6) + d2), (*(k+10) + d6));
 
-    h1 += MUL64((k3 + d3), (k7 + d7));
-    h2 += MUL64((k7 + d3), (k11 + d7));
+    h1 += MUL64((k3 + d3), (*(k+7) + d7));
+    h2 += MUL64((*(k+7) + d3), (*(k+11) + d7));
 
-    k0 = k8; k1 = k9; k2 = k10; k3 = k11;
+    k0 = *(k+8); k1 = *(k+9); k2 = *(k+10); k3 = *(k+11);
 
     d += 8;
     k += 8;
@@ -529,6 +1066,10 @@ static void nh_aux(void *kp, const void *dp, void *hp, UINT32 dlen)
 
 /* ---------------------------------------------------------------------- */
 #endif  /* UMAC_OUTPUT_LENGTH */
+/* ---------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------- */
+#endif  /* FORCE_C_ONLY */
 /* ---------------------------------------------------------------------- */
 
 
@@ -857,6 +1398,163 @@ static void poly_hash(uhash_ctx_t hc, UINT32 data_in[])
  * multiplies each with a 36 bit key.
  */
 
+
+#if (MSC_X86 && ! FORCE_C_ONLY)
+
+static UINT64 ip_aux(UINT64 t, UINT64 *ipkp, UINT64 data)
+{
+    UINT32 data_hi = (UINT32)(data >> 32),
+           data_lo = (UINT32)(data),
+           t_hi = (UINT32)(t >> 32),
+           t_lo = (UINT32)(t);
+    __asm{
+        mov edi, ipkp
+        mov ebx,data_hi
+        mov ecx,data_lo
+        mov esi, t_lo
+        mov edx, t_hi
+        push ebp
+        mov ebp,edx
+        mov eax,ebx
+        shr eax,16
+        mul DWORD PTR 0[edi]
+        add esi,eax
+        adc ebp,edx
+        mov eax,ebx
+        shr eax,16
+        mul DWORD PTR 4[edi]
+        add ebp,eax
+
+        movzx eax,bx
+        mul DWORD PTR 8[edi]
+        add esi,eax
+        adc ebp,edx
+        movzx eax,bx
+        mul DWORD PTR 12[edi]
+        add ebp,eax
+
+        mov eax,ecx
+        shr eax,16
+        mul DWORD PTR 16[edi]
+        add esi,eax
+        adc ebp,edx
+        mov eax,ecx
+        shr eax,16
+        mul DWORD PTR 20[edi]
+        add ebp,eax
+
+        movzx eax,cx
+        mul DWORD PTR 24[edi]
+        add esi,eax
+        adc ebp,edx
+        movzx eax,cx
+        mul DWORD PTR 28[edi]
+        lea edx,[eax+ebp]
+        mov eax,esi
+        pop ebp
+        /* MSVC returns UINT64 in edx:eax */
+    }
+}
+
+static UINT32 ip_reduce_p36(UINT64 t)
+{
+    UINT32 t_hi = (UINT32)(t >> 32),
+           t_lo = (UINT32)(t);
+    __asm{
+        mov edx,t_hi
+        mov eax,t_lo
+        mov edi,edx
+        and edx,15
+        shr edi,4
+        lea edi,[edi+edi*4]
+        add eax,edi
+        adc edx,0
+        cmp edx,0xf
+        jb skip_sub
+        ja do_sub
+        cmp eax,0xfffffffb
+        jb skip_sub
+do_sub:
+        sub eax, 0xfffffffb
+        /* sbb  edx, 0xf We don't return the high word */
+skip_sub:
+    }
+}
+
+#elif (GCC_X86 && ! FORCE_C_ONLY)
+
+static UINT64 ip_aux(UINT64 t, UINT64 *ipkp, UINT64 data)
+{
+    UINT32 dummy1, dummy2;
+    asm volatile(
+        "pushl %%ebp\n\t"
+        "movl %%eax,%%esi\n\t"
+        "movl %%edx,%%ebp\n\t"
+        "movl %%ebx,%%eax\n\t"
+        "shrl $16,%%eax\n\t"
+        "mull 0(%%edi)\n\t"
+        "addl %%eax,%%esi\n\t"
+        "adcl %%edx,%%ebp\n\t"
+        "movl %%ebx,%%eax\n\t"
+        "shrl $16,%%eax\n\t"
+        "mull 4(%%edi)\n\t"
+        "addl %%eax,%%ebp\n\t"
+
+        "movzwl %%bx,%%eax\n\t"
+        "mull 8(%%edi)\n\t"
+        "addl %%eax,%%esi\n\t"
+        "adcl %%edx,%%ebp\n\t"
+        "movzwl %%bx,%%eax\n\t"
+        "mull 12(%%edi)\n\t"
+        "addl %%eax,%%ebp\n\t"
+
+        "movl %%ecx,%%eax\n\t"
+        "shrl $16,%%eax\n\t"
+        "mull 16(%%edi)\n\t"
+        "addl %%eax,%%esi\n\t"
+        "adcl %%edx,%%ebp\n\t"
+        "movl %%ecx,%%eax\n\t"
+        "shrl $16,%%eax\n\t"
+        "mull 20(%%edi)\n\t"
+        "addl %%eax,%%ebp\n\t"
+
+        "movzwl %%cx,%%eax\n\t"
+        "mull 24(%%edi)\n\t"
+        "addl %%eax,%%esi\n\t"
+        "adcl %%edx,%%ebp\n\t"
+        "movzwl %%cx,%%eax\n\t"
+        "mull 28(%%edi)\n\t"
+        "leal (%%eax,%%ebp),%%edx\n\t"
+        "movl %%esi,%%eax\n\t"
+        "popl %%ebp"
+    : "+A"(t), "=b"(dummy1), "=c"(dummy2)
+    : "D"(ipkp), "1"((UINT32)(data>>32)), "2"((UINT32)data)
+    : "esi");
+    
+    return t;
+}
+
+static UINT32 ip_reduce_p36(UINT64 t)
+{
+    asm volatile(
+        "movl %%edx,%%edi\n\t"
+        "andl $15,%%edx\n\t"
+        "shrl $4,%%edi\n\t"
+        "leal (%%edi,%%edi,4),%%edi\n\t"
+        "addl %%edi,%%eax\n\t"
+        "adcl $0,%%edx\n\t"
+    : "+A"(t)
+    :
+    : "edi");
+
+    if (t >= p36)
+        t -= p36;
+
+    return (UINT32)(t);
+}
+
+#else
+
 static UINT64 ip_aux(UINT64 t, UINT64 *ipkp, UINT64 data)
 {
     t = t + ipkp[0] * (UINT64)(UINT16)(data >> 48);
@@ -880,6 +1578,7 @@ static UINT32 ip_reduce_p36(UINT64 t)
     return (UINT32)(ret);
 }
 
+#endif
 
 /* If the data being hashed by UHASH is no longer than L1_KEY_LEN, then
  * the polyhash stage is skipped and ip_short is applied directly to the
