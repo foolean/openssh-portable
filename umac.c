@@ -61,6 +61,7 @@
 # error UMAC_OUTPUT_LEN must be defined to 4, 8, 12 or 16
 #endif
 
+#define TEST_ASM 1             /* enable to test inline asm routines   */
 /* #define FORCE_C_ONLY        1  ANSI C and 64-bit integers req'd        */
 /* #define AES_IMPLEMENTAION   1  1 = OpenSSL, 2 = Barreto, 3 = Gladman   */
 /* #define SSE2                0  Is SSE2 is available?                   */
@@ -103,8 +104,7 @@ typedef unsigned int	UWORD;  /* Register */
 /* GNU gcc and Microsoft Visual C++ (and copycats) on IA-32 are supported
  * with some assembly
  */
-#define GCC_X86         (__GNUC__ && __x86_64__)      /* GCC on IA-32       */
-#define MSC_X86         (_M_IX86)                   /* Microsoft on IA-32 */
+#define GCC_X86         (__GNUC__ && (__x86_64__ || __I386__))
 
 /* Message "words" are read from memory in an endian-specific manner.     */
 /* For this implementation to behave correctly, __LITTLE_ENDIAN__ must    */
@@ -121,11 +121,6 @@ typedef unsigned int	UWORD;  /* Register */
 /* ----- Architecture Specific ------------------------------------------ */
 /* ---------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------- */
-
-#if (MSC_X86)
-#pragma warning(disable: 4731)  /* Turn off "ebp manipulation" warning    */
-#pragma warning(disable: 4311)  /* Turn off "pointer trunc" warning       */
-#endif
 
 /* ---------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------- */
@@ -149,24 +144,23 @@ typedef unsigned int	UWORD;  /* Register */
  * automatically utilize the efficient assembly opcodes. The architechture-
  * specific versions utilize them.
  */
-               
-/*
-#if (GCC_X86)
+
+
+#if (GCC_X86 && TEST_ASM)
 
 static UINT32 LOAD_UINT32_REVERSED(void *ptr)
 {
     UINT32 temp;
-    asm volatile("bswap %0" : "=r" (temp) : "0" (*(UINT32 *)ptr)); 
+    asm volatile("bswap %0" : "=r" (temp) : "0" (*(UINT32 *)ptr));
     return temp;
 }
 
 static void STORE_UINT32_REVERSED(void *ptr, UINT32 x)
 {
-    asm volatile("bswap %0" : "=r" (*(UINT32 *)ptr) : "0" (x)); 
+    asm volatile("bswap %0" : "=r" (*(UINT32 *)ptr) : "0" (x));
 }
 
 #else
-*/
 
 static UINT32 LOAD_UINT32_REVERSED(void *ptr)
 {
@@ -175,7 +169,7 @@ static UINT32 LOAD_UINT32_REVERSED(void *ptr)
          | ((temp & 0x0000FF00) << 8 ) | (temp << 24);
     return (UINT32)temp;
 }
-               
+
 static void STORE_UINT32_REVERSED(void *ptr, UINT32 x)
 {
     UINT32 i = (UINT32)x;
@@ -183,7 +177,7 @@ static void STORE_UINT32_REVERSED(void *ptr, UINT32 x)
                    | ((i & 0x0000FF00) << 8 ) | (i << 24);
 }
 
-//#endif
+#endif
 
 /* The following definitions use the above reversal-primitives to do the right
  * thing on endian specific load and stores.
@@ -425,8 +419,8 @@ static void nh_aux(void *kp, const void *dp, void *hp, UINT32 dlen)
   UINT32 *k = (UINT32 *)kp;
   const UINT32 *d = (const UINT32 *)dp;
   UINT32 d0,d1,d2,d3,d4,d5,d6,d7;
-  UINT32 k0,k1,k2,k3, k4,k5,k6,k7,
-         k8,k9,k10,k11;
+  UINT32 k0,k1,k2,k3,k4,k5,k6,k7,
+        k8,k9,k10,k11;
 
   h1 = *((UINT64 *)hp);
   h2 = *((UINT64 *)hp + 1);
@@ -582,6 +576,7 @@ static void nh_aux(void *kp, const void *dp, void *hp, UINT32 dlen)
 /* ---------------------------------------------------------------------- */
 #endif  /* UMAC_OUTPUT_LENGTH */
 /* ---------------------------------------------------------------------- */
+
 
 /* ---------------------------------------------------------------------- */
 
@@ -908,7 +903,6 @@ static void poly_hash(uhash_ctx_t hc, UINT32 data_in[])
  * multiplies each with a 36 bit key.
  */
 
-
 static UINT64 ip_aux(UINT64 t, UINT64 *ipkp, UINT64 data)
 {
     t = t + ipkp[0] * (UINT64)(UINT16)(data >> 48);
@@ -931,6 +925,7 @@ static UINT32 ip_reduce_p36(UINT64 t)
     /* return least significant 32 bits */
     return (UINT32)(ret);
 }
+
 
 /* If the data being hashed by UHASH is no longer than L1_KEY_LEN, then
  * the polyhash stage is skipped and ip_short is applied directly to the
