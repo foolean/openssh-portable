@@ -61,7 +61,7 @@
 # error UMAC_OUTPUT_LEN must be defined to 4, 8, 12 or 16
 #endif
 
-#define TEST_ASM               1  /* enable to test inline asm routines   */
+#define TEST_ASM               0  /* enable to test inline asm routines   */
 /* #define FORCE_C_ONLY        1  ANSI C and 64-bit integers req'd        */
 /* #define AES_IMPLEMENTAION   1  1 = OpenSSL, 2 = Barreto, 3 = Gladman   */
 /* #define SSE2                0  Is SSE2 is available?                   */
@@ -146,7 +146,7 @@ typedef unsigned int	UWORD;  /* Register */
  */
 
 
-/* #if (GCC && TEST_ASM) */
+#if (GCC && TEST_ASM)
 
 static UINT32 LOAD_UINT32_REVERSED(void *ptr)
 {
@@ -160,24 +160,24 @@ static void STORE_UINT32_REVERSED(void *ptr, UINT32 x)
     asm volatile("bswap %0" : "=r" (*(UINT32 *)ptr) : "0" (x));
 }
 
-/* #else */
+#else
 
-/* static UINT32 LOAD_UINT32_REVERSED(void *ptr) */
-/* { */
-/*     UINT32 temp = *(UINT32 *)ptr; */
-/*     temp = (temp >> 24) | ((temp & 0x00FF0000) >> 8 ) */
-/*          | ((temp & 0x0000FF00) << 8 ) | (temp << 24); */
-/*     return (UINT32)temp; */
-/* } */
+static UINT32 LOAD_UINT32_REVERSED(void *ptr)
+{
+    UINT32 temp = *(UINT32 *)ptr;
+    temp = (temp >> 24) | ((temp & 0x00FF0000) >> 8 )
+         | ((temp & 0x0000FF00) << 8 ) | (temp << 24);
+    return (UINT32)temp;
+}
 
-/* static void STORE_UINT32_REVERSED(void *ptr, UINT32 x) */
-/* { */
-/*     UINT32 i = (UINT32)x; */
-/*     *(UINT32 *)ptr = (i >> 24) | ((i & 0x00FF0000) >> 8 ) */
-/*                    | ((i & 0x0000FF00) << 8 ) | (i << 24); */
-/* } */
+static void STORE_UINT32_REVERSED(void *ptr, UINT32 x)
+{
+    UINT32 i = (UINT32)x;
+    *(UINT32 *)ptr = (i >> 24) | ((i & 0x00FF0000) >> 8 )
+                   | ((i & 0x0000FF00) << 8 ) | (i << 24);
+}
 
-/* #endif */
+#endif
 
 /* The following definitions use the above reversal-primitives to do the right
  * thing on endian specific load and stores.
