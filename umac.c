@@ -135,7 +135,11 @@ typedef unsigned int	UWORD;  /* Register */
 /* ---------------------------------------------------------------------- */
 
 
-/* testing using the functions from smisc.c as statics */
+/* Using local statically defined versions of the get/put functions
+ * found in misc.c allows them to be inlined. This improves throughput
+ * performance by 10% to 15% on well connected (10Gb/s) systems.
+ * Chris Rapier <rapier@psc.edu> 2022-03-09 */
+
 static u_int32_t
 umac_get_u32(const void *vp)
 {
@@ -175,6 +179,7 @@ umac_put_u32(void *vp, u_int32_t v)
         p[3] = (u_char)v & 0xff;
 }
 
+#if (! __LITTLE_ENDIAN__) /* compile time warning thown otherwise */
 static void
 umac_put_u32_le(void *vp, u_int32_t v)
 {
@@ -185,8 +190,7 @@ umac_put_u32_le(void *vp, u_int32_t v)
         p[2] = (u_char)(v >> 16) & 0xff;
         p[3] = (u_char)(v >> 24) & 0xff;
 }
-
-
+#endif
 
 #if (__LITTLE_ENDIAN__)
 #define LOAD_UINT32_REVERSED(p)		umac_get_u32(p)
