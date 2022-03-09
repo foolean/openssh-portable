@@ -61,7 +61,6 @@
 # error UMAC_OUTPUT_LEN must be defined to 4, 8, 12 or 16
 #endif
 
-#define TEST_ASM               0  /* enable to test inline asm routines   */
 /* #define FORCE_C_ONLY        1  ANSI C and 64-bit integers req'd        */
 /* #define AES_IMPLEMENTAION   1  1 = OpenSSL, 2 = Barreto, 3 = Gladman   */
 /* #define SSE2                0  Is SSE2 is available?                   */
@@ -101,11 +100,6 @@ typedef unsigned int	UWORD;  /* Register */
 
 #define UMAC_KEY_LEN           16  /* UMAC takes 16 bytes of external key */
 
-/* GNU gcc and Microsoft Visual C++ (and copycats) on IA-32 are supported
- * with some assembly
- */
-#define GCC_X86         (__GNUC__)
-
 /* Message "words" are read from memory in an endian-specific manner.     */
 /* For this implementation to behave correctly, __LITTLE_ENDIAN__ must    */
 /* be set true if the host computer is little-endian.                     */
@@ -121,6 +115,7 @@ typedef unsigned int	UWORD;  /* Register */
 /* ----- Architecture Specific ------------------------------------------ */
 /* ---------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------- */
+
 
 /* ---------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------- */
@@ -139,29 +134,6 @@ typedef unsigned int	UWORD;  /* Register */
 /* --- Endian Conversion --- Forcing assembly on some platforms           */
 /* ---------------------------------------------------------------------- */
 
-/* Lots of endian reversals happen in UMAC. PowerPC and Intel Architechture
- * both support efficient endian conversion, but compilers seem unable to
- * automatically utilize the efficient assembly opcodes. The architechture-
- * specific versions utilize them.
- */
-
-
-#if (GCC && TEST_ASM)
-
-static UINT32 LOAD_UINT32_REVERSED(void *ptr)
-{
-    UINT32 temp;
-    asm volatile("bswap %0" : "=r" (temp) : "0" (*(UINT32 *)ptr));
-    return temp;
-}
-
-static void STORE_UINT32_REVERSED(void *ptr, UINT32 x)
-{
-    asm volatile("bswap %0" : "=r" (*(UINT32 *)ptr) : "0" (x));
-}
-
-#else
-
 static UINT32 LOAD_UINT32_REVERSED(void *ptr)
 {
     UINT32 temp = *(UINT32 *)ptr;
@@ -176,8 +148,6 @@ static void STORE_UINT32_REVERSED(void *ptr, UINT32 x)
     *(UINT32 *)ptr = (i >> 24) | ((i & 0x00FF0000) >> 8 )
                    | ((i & 0x0000FF00) << 8 ) | (i << 24);
 }
-
-#endif
 
 /* The following definitions use the above reversal-primitives to do the right
  * thing on endian specific load and stores.
