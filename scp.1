@@ -18,7 +18,7 @@
 .Nd OpenSSH secure file copy
 .Sh SYNOPSIS
 .Nm scp
-.Op Fl 346ABCOpqRrsTv
+.Op Fl 346ABCOpqRrsTvZ
 .Op Fl c Ar cipher
 .Op Fl D Ar sftp_server_path
 .Op Fl F Ar ssh_config
@@ -28,6 +28,7 @@
 .Op Fl o Ar ssh_option
 .Op Fl P Ar port
 .Op Fl S Ar program
+.Op Fl z Ar file path of remote scp
 .Ar source ... target
 .Sh DESCRIPTION
 .Nm
@@ -250,6 +251,8 @@ Recursively copy entire directories.
 Note that
 .Nm
 follows symbolic links encountered in the tree traversal.
+.It Fl Z
+Resume failed or interrupted transfer. Identical files will be skipped. Remote must have resume option. 
 .It Fl S Ar program
 Name of
 .Ar program
@@ -257,6 +260,10 @@ to use for the encrypted connection.
 The program must understand
 .Xr ssh 1
 options.
+.It Fl z Ar program
+Path to scp on remote system. Useful if remote has multiple scp installs.
+For example, using the resume option but the default remote scp does not have the resume option.
+Use -z to point the version that does - e.g. -z /opt/hpnssh/bin/scp
 .It Fl s
 Use the SFTP protocol for transfers rather than the original scp protocol.
 .It Fl T
@@ -298,6 +305,7 @@ source code from the Regents of the University of California.
 .Sh AUTHORS
 .An Timo Rinne Aq Mt tri@iki.fi
 .An Tatu Ylonen Aq Mt ylo@cs.hut.fi
+.An Chris Rapier Aq Mt rapier@psc.edu
 .Sh CAVEATS
 The original SCP protocol (used by default) requires execution of the
 remote user's shell to perform

@@ -150,6 +150,17 @@ compat_banner(struct ssh *ssh, const char *version)
 			debug_f("match: %s pat %s compat 0x%08x",
 			    version, check[i].pat, check[i].bugs);
 			ssh->compat = check[i].bugs;
+			/* Check to see if the remote side is OpenSSH and not HPN */
+			/* TODO: See if we can work this into the new method for bucg checks */
+			if (strstr(version, "OpenSSH") != NULL) {
+				if (strstr(version, "hpn") == NULL) {
+					ssh->compat |= SSH_BUG_LARGEWINDOW;
+					debug("Remote is NOT HPN enabled");
+				} else {
+					debug("Remote is HPN Enabled");
+				}
+			}
+			debug("ssh->compat is %u", ssh->compat);
 			return;
 		}
 	}
