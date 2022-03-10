@@ -137,22 +137,13 @@ typedef unsigned int	UWORD;  /* Register */
 
 /* Using local statically defined versions of the get/put functions
  * found in misc.c allows them to be inlined. This improves throughput
- * performance by 10% to 15% on well connected (10Gb/s) systems.
+ * performance by 10% to 15% on well connected (10Gb/s+) systems. 
+ * Forward declaration of the functions in order to maintain 
+ * the attributes.
  * Chris Rapier <rapier@psc.edu> 2022-03-09 */
 
-static u_int32_t
-umac_get_u32(const void *vp)
-{
-        const u_char *p = (const u_char *)vp;
-        u_int32_t v;
-
-        v  = (u_int32_t)p[0] << 24;
-        v |= (u_int32_t)p[1] << 16;
-        v |= (u_int32_t)p[2] << 8;
-        v |= (u_int32_t)p[3];
-
-        return (v);
-}
+static u_int32_t umac_get_u32_le(const void *)
+    __attribute__((__bounded__(__minbytes__, 1, 4)));
 
 static u_int32_t
 umac_get_u32_le(const void *vp)
@@ -168,18 +159,10 @@ umac_get_u32_le(const void *vp)
         return (v);
 }
 
-static void
-umac_put_u32(void *vp, u_int32_t v)
-{
-        u_char *p = (u_char *)vp;
-
-        p[0] = (u_char)(v >> 24) & 0xff;
-        p[1] = (u_char)(v >> 16) & 0xff;
-        p[2] = (u_char)(v >> 8) & 0xff;
-        p[3] = (u_char)v & 0xff;
-}
-
 #if (! __LITTLE_ENDIAN__) /* compile time warning thown otherwise */
+static void umac_put_u32_le(void *, u_int32_t)
+    __attribute__((__bounded__(__minbytes__, 1, 4)));
+
 static void
 umac_put_u32_le(void *vp, u_int32_t v)
 {
@@ -193,15 +176,15 @@ umac_put_u32_le(void *vp, u_int32_t v)
 #endif
 
 #if (__LITTLE_ENDIAN__)
-#define LOAD_UINT32_REVERSED(p)		umac_get_u32(p)
-#define STORE_UINT32_REVERSED(p,v)	umac_put_u32(p,v)
+#define LOAD_UINT32_REVERSED(p)		get_u32(p)
+#define STORE_UINT32_REVERSED(p,v)	put_u32(p,v)
 #else
 #define LOAD_UINT32_REVERSED(p)		umac_get_u32_le(p)
 #define STORE_UINT32_REVERSED(p,v)	umac_put_u32_le(p,v)
 #endif
 
 #define LOAD_UINT32_LITTLE(p)		(umac_get_u32_le(p))
-#define STORE_UINT32_BIG(p,v)		umac_put_u32(p, v)
+#define STORE_UINT32_BIG(p,v)		put_u32(p, v)
 
 /* ---------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------- */
