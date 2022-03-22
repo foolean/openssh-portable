@@ -78,7 +78,7 @@ chacha_keysetup(chacha_ctx *x,const u8 *k,u32 kbits)
 }
 
 void
-chacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter)
+chachacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter)
 {
   x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
   x->input[13] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 4);
