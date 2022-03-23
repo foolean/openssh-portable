@@ -104,7 +104,7 @@ struct kq {
 };
 
 /* Context struct */
-struct ssh_cc_ctr_ctx_mt
+struct ssh_chacha_ctr_ctx_mt
 {
 	int             struct_id;
 	int             keylen;
@@ -112,8 +112,7 @@ struct ssh_cc_ctr_ctx_mt
 	int		qidx;
 	int		ridx;
 	int             id[MAX_THREADS]; /* 6 */
-	AES_KEY         aes_key;
-	const u_char    *orig_key;
+	const u_char    *orig_key; /**Should this be the IV and blk counter */
 	u_char		chacha_counter[CHACHA_BLOCKLEN]; /* 16B */
 	pthread_t	tid[MAX_THREADS]; /* 6 */
 	pthread_rwlock_t tid_lock;
@@ -165,7 +164,7 @@ thread_loop_cleanup(void *x)
 	pthread_mutex_unlock((pthread_mutex_t *)x);
 }
 
-#ifdef __APPLE__
+// #ifdef __APPLE__
 /* Check if we should exit, we are doing both cancel and exit condition
  * since on OSX threads seem to occasionally fail to notice when they have
  * been cancelled. We want to have a backup to make sure that we won't hang
@@ -183,9 +182,9 @@ thread_loop_check_exit(struct ssh_aes_ctr_ctx_mt *c)
 	if (exit_flag)
 		pthread_exit(NULL);
 }
-#else
-# define thread_loop_check_exit(s)
-#endif /* __APPLE__ */
+// #else
+// # define thread_loop_check_exit(s)
+// #endif /* __APPLE__ */
 
 /*
  * Helper function to terminate the helper threads
@@ -195,12 +194,12 @@ stop_and_join_pregen_threads(struct ssh_aes_ctr_ctx_mt *c)
 {
 	int i;
 
-#ifdef __APPLE__
-	/* notify threads that they should exit */
-	pthread_rwlock_wrlock(&c->stop_lock);
-	c->exit_flag = TRUE;
-	pthread_rwlock_unlock(&c->stop_lock);
-#endif /* __APPLE__ */
+// #ifdef __APPLE__
+// 	/* notify threads that they should exit */
+// 	pthread_rwlock_wrlock(&c->stop_lock);
+// 	c->exit_flag = TRUE;
+// 	pthread_rwlock_unlock(&c->stop_lock);
+// #endif /* __APPLE__ */
 
 	/* Cancel pregen threads */
 	for (i = 0; i < cipher_threads; i++) {
@@ -459,7 +458,7 @@ static int
 ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
     int enc)
 {
-	struct ssh_aes_ctr_ctx_mt *c;
+	struct ssh_chacha_ctr_ctx_mt *c;
 	int i;
 
  	/* get the number of cores in the system
@@ -486,21 +485,21 @@ ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 		divisor = 2;
 	cipher_threads = sysconf(_SC_NPROCESSORS_ONLN) / divisor;
 #endif  /*__linux__*/
-#ifdef  __APPLE__
-	int count;
-	size_t count_len = sizeof(count);
-	sysctlbyname("hw.physicalcpu", &count, &count_len, NULL, 0);
-	cipher_threads = count / 2;
-#endif  /*__APPLE__*/
-#ifdef  __FREEBSD__
-	int threads_per_core;
-	int cores;
-	size_t cores_len = sizeof(cores);
-	size_t tpc_len = sizeof(threads_per_core);
-	sysctlbyname("kern.smp.threads_per_core", &threads_per_core, &tpc_len, NULL, 0);
-	sysctlbyname("kern.smp.cores", &cores, &cores_len, NULL, 0);
-	cipher_threads = cores / threads_per_core;
-#endif  /*__FREEBSD__*/
+// #ifdef  __APPLE__
+// 	int count;
+// 	size_t count_len = sizeof(count);
+// 	sysctlbyname("hw.physicalcpu", &count, &count_len, NULL, 0);
+// 	cipher_threads = count / 2;
+// #endif  /*__APPLE__*/
+// #ifdef  __FREEBSD__
+// 	int threads_per_core;
+// 	int cores;
+// 	size_t cores_len = sizeof(cores);
+// 	size_t tpc_len = sizeof(threads_per_core);
+// 	sysctlbyname("kern.smp.threads_per_core", &threads_per_core, &tpc_len, NULL, 0);
+// 	sysctlbyname("kern.smp.cores", &cores, &cores_len, NULL, 0);
+// 	cipher_threads = cores / threads_per_core;
+// #endif  /*__FREEBSD__*/
 
  	/* if they have less than 4 cores spin up 2 threads anyway */
 	if (cipher_threads < 2)
