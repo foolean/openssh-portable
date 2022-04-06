@@ -112,11 +112,15 @@ struct ssh_chacha_ctr_ctx_mt
 	int		qidx;
 	int		ridx;
 	int             id[MAX_THREADS]; /* 6 */
-	const u_char    *orig_key; /**Should this be the IV and blk counter */
+	// CHACHA_KEY 		chacha_key;
+	const u_char    *orig_key; 
 	u_char		chacha_counter[CHACHA_BLOCKLEN]; /* 16B */
 	pthread_t	tid[MAX_THREADS]; /* 6 */
 	pthread_rwlock_t tid_lock;
 	struct kq	q[MAX_NUMKQ]; /* 24 */
+	//from chachapoly_ctx
+	EVP_CIPHER_CTX *main_evp;
+	EVP_CIPHER_CTX *header_evp;
 #ifdef __APPLE__
 	pthread_rwlock_t stop_lock;
 	int		exit_flag;
@@ -164,7 +168,7 @@ thread_loop_cleanup(void *x)
 	pthread_mutex_unlock((pthread_mutex_t *)x);
 }
 
-// #ifdef __APPLE__
+#ifdef __APPLE__
 /* Check if we should exit, we are doing both cancel and exit condition
  * since on OSX threads seem to occasionally fail to notice when they have
  * been cancelled. We want to have a backup to make sure that we won't hang
@@ -182,9 +186,9 @@ thread_loop_check_exit(struct ssh_aes_ctr_ctx_mt *c)
 	if (exit_flag)
 		pthread_exit(NULL);
 }
-// #else
-// # define thread_loop_check_exit(s)
-// #endif /* __APPLE__ */
+#else
+# define thread_loop_check_exit(s)
+#endif /* __APPLE__ */
 
 /*
  * Helper function to terminate the helper threads
@@ -481,21 +485,21 @@ ssh_chacha_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 		divisor = 2;
 	cipher_threads = sysconf(_SC_NPROCESSORS_ONLN) / divisor;
 #endif  /*__linux__*/
-// #ifdef  __APPLE__
-// 	int count;
-// 	size_t count_len = sizeof(count);
-// 	sysctlbyname("hw.physicalcpu", &count, &count_len, NULL, 0);
-// 	cipher_threads = count / 2;
-// #endif  /*__APPLE__*/
-// #ifdef  __FREEBSD__
-// 	int threads_per_core;
-// 	int cores;
-// 	size_t cores_len = sizeof(cores);
-// 	size_t tpc_len = sizeof(threads_per_core);
-// 	sysctlbyname("kern.smp.threads_per_core", &threads_per_core, &tpc_len, NULL, 0);
-// 	sysctlbyname("kern.smp.cores", &cores, &cores_len, NULL, 0);
-// 	cipher_threads = cores / threads_per_core;
-// #endif  /*__FREEBSD__*/
+#ifdef  __APPLE__
+	int count;
+	size_t count_len = sizeof(count);
+	sysctlbyname("hw.physicalcpu", &count, &count_len, NULL, 0);
+	cipher_threads = count / 2;
+#endif  /*__APPLE__*/
+#ifdef  __FREEBSD__
+	int threads_per_core;
+	int cores;
+	size_t cores_len = sizeof(cores);
+	size_t tpc_len = sizeof(threads_per_core);
+	sysctlbyname("kern.smp.threads_per_core", &threads_per_core, &tpc_len, NULL, 0);
+	sysctlbyname("kern.smp.cores", &cores, &cores_len, NULL, 0);
+	cipher_threads = cores / threads_per_core;
+#endif  /*__FREEBSD__*/
 
  	/* if they have less than 4 cores spin up 2 threads anyway */
 	if (cipher_threads < 2)
@@ -504,8 +508,8 @@ ssh_chacha_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
  	/* assure that we aren't trying to create more threads */
  	/* than we have in the struct. cipher_threads is half the */
  	/* total of allowable threads hence the odd looking math here */
- 	//if (cipher_threads * 2 > MAX_THREADS)
- 	//	cipher_threads = MAX_THREADS / 2;
+ 	if (cipher_threads * 2 > MAX_THREADS)
+ 		cipher_threads = MAX_THREADS / 2;
 
 	if (cipher_threads > MAX_THREADS)
 		cipher_threads = MAX_THREADS;
@@ -522,7 +526,7 @@ ssh_chacha_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 
 	/* set up the initial state of c (our cipher stream struct) */
  	if ((c = EVP_CIPHER_CTX_get_app_data(ctx)) == NULL) {
-		c = xmalloc(sizeof(*c));
+		c = xcalloc(sizeof(*c));
 		pthread_rwlock_init(&c->tid_lock, NULL);
 
 		c->state = HAVE_NONE;
@@ -550,9 +554,24 @@ ssh_chacha_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 
 	/* set the initial key for this key stream queue */
 	if (key != NULL) {
-		//Is this the same as evp_cipherinit 
-		chacha_set_encrypt_key(key, EVP_CIPHER_CTX_key_length(ctx) * 8, //error
-		   &c->aes_key);
+		bool fail = false;
+		/**Since there is no keylen, assume keylen is correct? */
+		if ((c->main_evp = EVP_CIPHER_CTX_new()) == NULL ||
+			(c->header_evp = EVP_CIPHER_CTX_new()) == NULL) 
+			fail = true;
+		if (!EVP_CipherInit(c->main_evp, EVP_chacha20(), key, NULL, 1))
+			fail = true;
+		if (!EVP_CipherInit(c->header_evp, EVP_chacha20(), key + 32, NULL, 1))
+			fail = true;
+		if (EVP_CIPHER_CTX_iv_length(c->header_evp) != 16)
+			fail = true;
+		if (fail) {
+			fprintf(stderr, "ssh_chacha_ctr_init failure when key!=NULL\n");
+			if (c->main_evp) EVP_CIPHER_CTX_free(c->main_evp);
+			if (c->header_evp) EVP_CIPHER_CTX_free(c->header_evp);
+			free(c);
+			exit(-1);
+		}
 		c->orig_key = key;
 		c->keylen = EVP_CIPHER_CTX_key_length(ctx) * 8;
 		c->state |= HAVE_KEY;
@@ -561,7 +580,7 @@ ssh_chacha_ctr_init(EVP_CIPHER_CTX *ctx, const u_char *key, const u_char *iv,
 	/* set the IV */
 	if (iv != NULL) {
 		/* init the counter this is just a 16byte uchar */
-		memcpy(c->chacha_counter, iv, CHACHA_BLOCKLEN);
+		memcpy(c->chacha_counter, iv, CHACHA_BLOCKLEN); //this may have problems
 		c->state |= HAVE_IV;
 	}
 
